@@ -1,27 +1,27 @@
 /* SecureWatch service worker — caches the app shell so the guard app opens and works offline.
  * Data is stored in IndexedDB by the page, not here. Bump CACHE when you change any file. */
-const CACHE = 'securewatch-v1.0.0';
+const CACHE = 'securewatch-v1.0.1';
 const SHELL = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './manifest.json',
-  './js/utils.js',
-  './js/db.js',
-  './js/core.js',
-  './js/guard.js',
-  './js/manager.js',
-  './lib/qrcode.js',
-  './lib/jsQR.js',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './fonts/barlow-latin-400-normal.woff2',
-  './fonts/barlow-latin-500-normal.woff2',
-  './fonts/barlow-latin-600-normal.woff2',
-  './fonts/barlow-latin-700-normal.woff2',
-  './fonts/barlow-condensed-latin-600-normal.woff2',
-  './fonts/barlow-condensed-latin-700-normal.woff2',
+  './utils.js',
+  './db.js',
+  './core.js',
+  './guard.js',
+  './manager.js',
+  './qrcode.js',
+  './jsQR.js',
+  './icon-192.png',
+  './icon-512.png',
+  './barlow-latin-400-normal.woff2',
+  './barlow-latin-500-normal.woff2',
+  './barlow-latin-600-normal.woff2',
+  './barlow-latin-700-normal.woff2',
+  './barlow-condensed-latin-600-normal.woff2',
+  './barlow-condensed-latin-700-normal.woff2',
 ];
 
 self.addEventListener('install', (e) => {
