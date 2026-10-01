@@ -832,8 +832,8 @@
     U.$('#bk-imp', v).onchange = (e) => SW.app.importBackup(e.target.files[0]);
     U.$('#dm-reset', v).onclick = () => SW.app.resetDemo();
     U.$('#dm-wipe', v).onclick = async () => {
-      if (!(await U.confirm('Erase all data?', 'This deletes every record and file on this device and signs you out. The demo logins will be recreated.', 'Erase everything', true))) return;
-      await db.clearAll(); await SW.auth.ensureDemoUsers(); await SW.auth.logout(); location.hash = '#/login'; location.reload();
+      if (!(await U.confirm('Erase all data?', 'This deletes every record and file on this device (including demo data) and signs you out. Use this before setting up your real sites and guards. The manager/guard/client demo logins remain so you can sign back in.', 'Erase everything', true))) return;
+      await db.clearAll(); await db.saveSettings({ demoMode: false }); await SW.auth.ensureDemoUsers(); await SW.auth.logout(); location.hash = '#/login'; location.reload();
     };
   };
 
