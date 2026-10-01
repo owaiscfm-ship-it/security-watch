@@ -21,6 +21,7 @@
   STORES.forEach((s) => (data[s] = []));
 
   let idb = null;
+  const remoteOn = () => !!(SW.remote && SW.remote.enabled && SW.session && SW.session.remote && SW.session.role !== 'client'); // clients are read-only
   let mode = 'indexeddb';
 
   function openIDB() {
@@ -70,7 +71,30 @@
       if (i >= 0) arr[i] = rec; else arr.push(rec);
       if (mode === 'indexeddb') await reqP(tx(store, true).put(rec));
       else localStorage.setItem('sw_' + store, JSON.stringify(arr));
+      if (remoteOn() && !SW.remote.LOCAL_ONLY.has(store)) await db.queueUp(store, rec.id, 'upsert');
       return rec;
+    },
+
+    /* write a record received from the server (no timestamps changed, not re-uploaded) */
+    async putRaw(store, rec) {
+      const arr = data[store];
+      const i = arr.findIndex((r) => r.id === rec.id);
+      if (i >= 0) arr[i] = rec; else arr.push(rec);
+      if (mode === 'indexeddb') await reqP(tx(store, true).put(rec));
+      else localStorage.setItem('sw_' + store, JSON.stringify(arr));
+    },
+    async removeRaw(store, id) {
+      data[store] = data[store].filter((r) => r.id !== id);
+      if (mode === 'indexeddb') await reqP(tx(store, true).delete(id));
+      else localStorage.setItem('sw_' + store, JSON.stringify(data[store]));
+    },
+    async queueUp(store, recordId, op, snapshot) {
+      const q = { id: 'Q|' + store + '|' + recordId, store, recordId, op, snapshot: snapshot || null, queuedAt: new Date().toISOString(), offline: !navigator.onLine, v: U.token(8), synced: false };
+      const arr = data.syncQueue;
+      const i = arr.findIndex((r) => r.id === q.id);
+      if (i >= 0) arr[i] = q; else arr.push(q);
+      if (mode === 'indexeddb') await reqP(tx('syncQueue', true).put(q));
+      else localStorage.setItem('sw_syncQueue', JSON.stringify(arr));
     },
 
     async putMany(store, recs) {
@@ -91,6 +115,8 @@
     },
 
     async remove(store, id) {
+      const gone = data[store].find((r) => r.id === id);
+      if (remoteOn() && !SW.remote.LOCAL_ONLY.has(store) && gone) await db.queueUp(store, id, 'delete', { siteId: gone.siteId || null, guardId: gone.guardId || null });
       data[store] = data[store].filter((r) => r.id !== id);
       if (mode === 'indexeddb') await reqP(tx(store, true).delete(id));
       else localStorage.setItem('sw_' + store, JSON.stringify(data[store]));
@@ -120,7 +146,7 @@
     /* ---- Settings ---- */
     settings() {
       return Object.assign(
-        { id: 'app', welfareInterval: 60, welfareGrace: 10, patrolFrequency: 120, gpsRadius: 75, licenceWarnDays: 60, demoMode: true, companyName: 'SecureWatch Security Ltd' },
+        { id: 'app', welfareInterval: 60, welfareGrace: 10, patrolFrequency: 120, gpsRadius: 75, licenceWarnDays: 60, demoMode: false, companyName: 'Crystal Facilities Management Ltd' },
         db.get('settings', 'app') || {}
       );
     },
@@ -136,6 +162,7 @@
         user: opts.user || s.displayName || 'System',
         role: opts.role || s.role || 'system',
         action,
+        guardId: s.guardId || null,
         siteId: opts.siteId || null,
         subject: opts.subject || '',
         related: opts.related || '',
@@ -150,7 +177,7 @@
      * so "synced" means "committed to this device's database" — nothing leaves the phone.
      */
     async queue(store, recordId) {
-      if (navigator.onLine) return;
+      if (remoteOn() || navigator.onLine) return; // with a server, every write is queued by put()
       await db.put('syncQueue', { id: U.uid('SYNC'), store, recordId, queuedAt: new Date().toISOString(), synced: false });
     },
     pending() { return data.syncQueue.filter((q) => !q.synced); },

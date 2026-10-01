@@ -1,7 +1,9 @@
 # SecureWatch
 **Security Operations & Patrol Management**
 
-> **Important limitation**
+> **Server version (2.0)** — SecureWatch now uses a Supabase server (London). Logins, the rota and all records sync between devices. Set-up: run `01-setup.sql` then `02-atl-data-PRIVATE.sql` in Supabase → SQL Editor, paste the publishable key into `config.js`. Manage logins in Settings → Logins. The notes below about local-only storage apply only if no server is configured.
+>
+> **Important limitation (no-server mode)**
 >
 > This GitHub Pages version is a functional prototype. It stores operational data locally on the device. True multi-user synchronization, secure authentication, centralised database storage, push notifications, client accounts and real-time management require a backend.
 
@@ -52,36 +54,21 @@ No build step, no npm, no server. All libraries and fonts are stored locally so 
    - **iPhone (Safari):** open the address in **Safari** → **Share** button → **Add to Home Screen** → **Add**. (On iPhone this must be done in Safari.)
    Open SecureWatch from the home-screen icon once while online so it can cache itself for offline use. Allow **Location** and **Camera** when asked.
 
-**Updating later:** upload the changed files, then open `service-worker.js` and change `CACHE = 'securewatch-v1.0.0'` to a new value (e.g. `v1.0.1`). Phones pick up the update the next time the app is opened online and closed/reopened.
+**Updating later:** upload the changed files, then open `service-worker.js` and change the `CACHE` version to a new value (e.g. `v1.0.1`). Phones pick up the update the next time the app is opened online and closed/reopened.
 
 ---
 
-## 3. Demo logins (demonstration only)
+## 3. Logins
 
-| Role    | Username  | Password  |
-|---------|-----------|-----------|
-| Manager | `manager` | `manager` |
-| Guard   | `guard`   | `guard`   |
-| Client  | `client`  | `client`  |
+There are no demo logins. Every user signs in with their own username and password, which are listed in `config.js` as secure hashes (PBKDF2-SHA256, 150,000 rounds) — the same on every device.
 
-These are **demo credentials**, deliberately public, and this is **not secure authentication**. Passwords are stored as salted SHA-256 hashes in the browser, but anyone with access to the device can still read or change local data.
+To add a login, reset a password or remove someone: sign in as a manager → **Settings → Logins**, then **Settings → Publish setup → Download config.js**, and upload that file to GitHub, replacing the old one.
 
----
+Note: the login protects the app screens. Files on a public GitHub Pages site (including `config.js`) can still be downloaded by anyone who knows the address. Do not put anything in the setup that must stay secret.
 
-## 4. Demonstrating it to a client (Demo mode)
+## 4. Changing the site, rota or checkpoints
 
-On first launch the app loads sample data: **Cardiff Business Centre**, guard **John Smith**, a 6-checkpoint route (*Main Entrance → Reception → Fire Exit A → Loading Bay → Car Park → Rear Entrance*), three past night shifts with patrols, one incomplete patrol with an explanation, welfare checks (one missed), three incidents, and a shift that is ready to start **now**.
-
-A suggested 5-minute demo:
-1. Sign in as **guard** on a phone → **Start shift** (shows the real GPS result).
-2. **Start patrol** → **Scan checkpoint** → use **Demo: simulate scan** (no need to walk the site). Scan a few, then **End patrol** to show the *Patrol incomplete* screen and explanation.
-3. **Report incident** with a photo; try **SOS** to show the confirmation and SOS screen.
-4. Sign out → sign in as **manager** on the same device: dashboard, live status, SOS/missed-welfare alerts, patrol history, incidents (change status), **Reports → Daily security report → Print / Export PDF**, CSV exports, QR code printing.
-5. Sign in as **client** for the read-only portal.
-
-**Settings → Reset demo data** restores the sample at any time. Simulated scans are stored as *Demo* data and use a simulated position, so they are never confused with real scans. Turn Demo mode off in **Settings** before real use to hide the simulate button.
-
----
+Edit on the manager laptop (Sites, Guards, Shifts, Patrols, Checkpoints), then **Settings → Publish setup → Download config.js** and upload it to GitHub. Every phone picks it up the next time SecureWatch is opened online. Shift progress, patrols, scans and incidents already recorded are never overwritten.
 
 ## 5. Features and how they behave in a static site
 
@@ -107,7 +94,10 @@ Guard phone: **More → Send my data to a manager** (uses the phone's share shee
 
 ---
 
-## 6. Data architecture
+## 6. Time zone
+All dates and times are shown and entered in UK time (Europe/London), whatever time zone the viewing device uses.
+
+## 7. Data architecture
 
 All records live in IndexedDB database `securewatch`, one object store per collection, keyed by `id`:
 
@@ -129,7 +119,7 @@ Every operational record carries `source: 'device' | 'demo'`.
 
 ---
 
-## 7. Connecting a backend later (Supabase, Firebase or your own API)
+## 8. Connecting a backend later (Supabase, Firebase or your own API)
 
 The code is already split so a backend can be added without rewriting the UI:
 
@@ -157,7 +147,7 @@ The code is already split so a backend can be added without rewriting the UI:
 
 ---
 
-## 8. Security and privacy
+## 9. Security and privacy
 
 - All user-entered text is HTML-escaped before display (XSS protection) and a Content-Security-Policy blocks external scripts.
 - Input is validated (SIA number format, dates, coordinates, phone/email, lengths). CSV exports neutralise spreadsheet formulas.
@@ -168,7 +158,7 @@ The code is already split so a backend can be added without rewriting the UI:
 
 ---
 
-## 9. Tested
+## 10. Tested
 
 Automated browser tests (Chromium, mobile 390×844 and desktop 1440×900) covered: all navigation pages, guard/manager/client login, start and end shift with GPS granted and with GPS blocked, patrol start, simulated, manual and invalid checkpoint scans, pause/resume, incomplete patrol with explanation, full 6/6 patrol completion, incident with photo, welfare confirmation and automatic missed-check detection, SOS, site instruction acknowledgement, guard/site/route/checkpoint/shift creation and validation, incident status change, daily report print and PDF output, all six CSV exports, QR code print sheet (generated codes were decoded back successfully), demo reset, going offline → reloading → recording → back online with the sync banner, and mobile layout with no horizontal scrolling. No JavaScript errors were reported.
 
@@ -176,7 +166,7 @@ Not testable in an automated browser, so please check on a real phone: the live 
 
 ---
 
-## 10. Credits
+## 11. Credits
 - QR generation: `qrcode-generator` by Kazuhiko Arase — MIT
 - QR reading: `jsQR` by Cosmo Wolfe — Apache 2.0
 - Fonts: Barlow and Barlow Condensed by Jeremy Tribby — SIL Open Font Licence 1.1

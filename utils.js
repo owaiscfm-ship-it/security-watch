@@ -35,24 +35,43 @@
     return Array.from(a).map((n) => chars[n % chars.length]).join('');
   };
 
-  /* ---------- Dates (UK formats) ---------- */
+  /* ---------- Dates (UK formats, always shown in UK time) ----------
+   * The site is in the UK, so every time is shown and entered in Europe/London time,
+   * whatever time zone the viewing device is set to (e.g. a manager abroad). */
   const pad = (n) => String(n).padStart(2, '0');
   U.pad = pad;
+  U.TZ = 'Europe/London';
+  let fmtP = null;
+  function parts(d) {
+    if (!fmtP) fmtP = new Intl.DateTimeFormat('en-GB', { timeZone: U.TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+    const o = {};
+    fmtP.formatToParts(d).forEach((x) => { if (x.type !== 'literal') o[x.type] = +x.value; });
+    if (o.hour === 24) o.hour = 0;
+    return o;
+  }
+  U.parts = parts;
   U.toDate = (v) => (v instanceof Date ? v : v ? new Date(v) : null);
-  U.fmtTime = (v) => { const d = U.toDate(v); return d && !isNaN(d) ? pad(d.getHours()) + ':' + pad(d.getMinutes()) : '—'; };
-  U.fmtTimeSec = (v) => { const d = U.toDate(v); return d && !isNaN(d) ? U.fmtTime(d) + ':' + pad(d.getSeconds()) : '—'; };
-  U.fmtDate = (v) => { const d = U.toDate(v); return d && !isNaN(d) ? pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() : '—'; };
+  const ok = (d) => d && !isNaN(d);
+  U.fmtTime = (v) => { const d = U.toDate(v); if (!ok(d)) return '—'; const p = parts(d); return pad(p.hour) + ':' + pad(p.minute); };
+  U.fmtTimeSec = (v) => { const d = U.toDate(v); if (!ok(d)) return '—'; const p = parts(d); return pad(p.hour) + ':' + pad(p.minute) + ':' + pad(p.second); };
+  U.fmtDate = (v) => { const d = U.toDate(v); if (!ok(d)) return '—'; const p = parts(d); return pad(p.day) + '/' + pad(p.month) + '/' + p.year; };
   U.fmtDateTime = (v) => (v ? U.fmtDate(v) + ' ' + U.fmtTime(v) : '—');
-  U.fmtLongDate = (v) => { const d = U.toDate(v); return d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'; };
-  U.fmtShortDate = (v) => { const d = U.toDate(v); return d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'; };
-  U.ymd = (v) => { const d = U.toDate(v) || new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+  U.fmtLongDate = (v) => { const d = U.toDate(v); return ok(d) ? d.toLocaleDateString('en-GB', { timeZone: U.TZ, day: 'numeric', month: 'long', year: 'numeric' }) : '—'; };
+  U.fmtShortDate = (v) => { const d = U.toDate(v); return ok(d) ? d.toLocaleDateString('en-GB', { timeZone: U.TZ, weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : '—'; };
+  U.ymd = (v) => { const d = U.toDate(v) || new Date(); const p = parts(d); return p.year + '-' + pad(p.month) + '-' + pad(p.day); };
   U.today = () => U.ymd(new Date());
+  U.ymdAdd = function (ymd, n) { const [y, m, d] = ymd.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + n)); return t.getUTCFullYear() + '-' + pad(t.getUTCMonth() + 1) + '-' + pad(t.getUTCDate()); };
+  /* UK wall-clock date + time -> real instant (handles GMT/BST) */
   U.combine = function (ymd, hm) {
     const [y, m, d] = ymd.split('-').map(Number);
     const [h, mi] = (hm || '00:00').split(':').map(Number);
-    return new Date(y, m - 1, d, h, mi, 0, 0);
+    const guess = Date.UTC(y, m - 1, d, h, mi);
+    const off = (t) => { const p = parts(new Date(t)); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - t; };
+    let t = guess - off(guess);
+    t = guess - off(t);
+    return new Date(t);
   };
-  U.addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  U.addDays = (d, n) => new Date(U.toDate(d).getTime() + n * 86400000);
   U.duration = function (ms) {
     if (ms == null || isNaN(ms) || ms < 0) ms = 0;
     const s = Math.floor(ms / 1000);
@@ -162,6 +181,14 @@
       h2 = Math.imul(h2 ^ data[i], 1597334677);
     }
     return 'weak-' + (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+  };
+
+  U.pbkdf2 = async function (password, salt, iterations) {
+    if (!(crypto.subtle && crypto.subtle.importKey)) throw new Error('Sign-in needs a secure (https) connection.');
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(salt), iterations: iterations || 150000 }, key, 256);
+    return Array.from(new Uint8Array(bits)).map((b) => b.toString(16).padStart(2, '0')).join('');
   };
 
   /* ---------- CSV / downloads ---------- */

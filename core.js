@@ -6,58 +6,56 @@
   const db = SW.db;
 
   /* =========================================================
-   * AUTH (prototype only — simulated in the browser)
-   * Passwords are stored as salted SHA-256 hashes, never as text.
-   * This is NOT secure authentication: anyone with access to the
-   * device can read or change local data. Use a backend in production.
+   * AUTH
+   * With the server (Supabase): real accounts, checked by the server.
+   * Without it: logins listed in config.js as salted PBKDF2 hashes (prototype only).
    * ========================================================= */
   const SESSION_KEY = 'sw_session';
   SW.session = null;
+  const users = () => ((window.SW_CONFIG && window.SW_CONFIG.users) || []);
+  const fails = { n: 0, until: 0 };
+  const remote = () => SW.remote && SW.remote.enabled;
 
   SW.auth = {
-    DEMO: [
-      { username: 'manager', password: 'manager', role: 'manager', displayName: 'Ops Manager (demo)' },
-      { username: 'guard', password: 'guard', role: 'guard', displayName: 'John Smith', guardId: 'G-001' },
-      { username: 'client', password: 'client', role: 'client', displayName: 'Client viewer (demo)', siteIds: ['S-001'] },
-    ],
-    async ensureDemoUsers() {
-      for (const d of SW.auth.DEMO) {
-        if (db.all('users').some((u) => u.username === d.username)) continue;
-        const salt = U.token(12);
-        await db.put('users', {
-          id: 'U-' + d.username,
-          username: d.username,
-          role: d.role,
-          displayName: d.displayName,
-          guardId: d.guardId || null,
-          siteIds: d.siteIds || [],
-          salt,
-          hash: await U.hash(d.password, salt),
-          demo: true,
-        });
+    users,
+    async login(username, password) {
+      if (Date.now() < fails.until) return { ok: false, error: 'Too many attempts. Wait ' + Math.ceil((fails.until - Date.now()) / 1000) + ' seconds and try again.' };
+      username = U.clean(username, 80).toLowerCase();
+      if (remote()) {
+        let p;
+        try { p = await SW.remote.login(username, password || ''); }
+        catch (e) { fails.n++; if (fails.n >= 5) { fails.until = Date.now() + 60000; fails.n = 0; } return { ok: false, error: e.message }; }
+        fails.n = 0;
+        SW.session = { userId: p.user_id, username: p.username, role: p.role, displayName: p.display_name || p.username, guardId: p.guard_id || null, siteIds: p.site_ids || [], at: Date.now(), remote: true };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(SW.session));
+        try { await SW.remote.pull(); } catch (e) { console.warn('First sync failed', e); }
+        if (p.role === 'guard') {
+          const g = db.get('guards', p.guard_id);
+          if (g && g.status !== 'Active') { await SW.auth.logout(); return { ok: false, error: 'This guard is marked ' + g.status + '. Contact your manager.' }; }
+          if (g) SW.session.displayName = g.name;
+        }
+        localStorage.setItem(SESSION_KEY, JSON.stringify(SW.session));
+        await db.audit('Signed in', { subject: p.role });
+        return { ok: true, session: SW.session };
       }
-    },
-    async createUser(username, password, role, extra) {
-      username = U.clean(username, 40).toLowerCase();
-      if (!/^[a-z0-9._-]{3,40}$/.test(username)) throw new Error('Username must be 3–40 letters, numbers, dots, dashes or underscores.');
-      if (db.all('users').some((u) => u.username === username)) throw new Error('That username is already in use.');
-      if (!password || password.length < 8) throw new Error('Password must be at least 8 characters.');
-      const salt = U.token(12);
-      return db.put('users', Object.assign({ id: U.uid('U'), username, role, salt, hash: await U.hash(password, salt) }, extra || {}));
-    },
-    async login(username, password, role) {
-      username = U.clean(username, 40).toLowerCase();
-      const u = db.all('users').find((x) => x.username === username);
-      if (!u) return { ok: false, error: 'Username or password is incorrect.' };
-      const h = await U.hash(password || '', u.salt);
-      if (h !== u.hash) return { ok: false, error: 'Username or password is incorrect.' };
-      if (role && u.role !== role) return { ok: false, error: 'This account is not a ' + role + ' account.' };
+      const u = users().find((x) => x.username === username);
+      let good = false;
+      try {
+        const h = await U.pbkdf2(password || '', u ? u.salt : 'no-such-user', u ? u.iterations : 150000);
+        good = !!u && h === u.hash;
+      } catch (e) { return { ok: false, error: e.message }; }
+      if (!good) {
+        fails.n++;
+        if (fails.n >= 5) { fails.until = Date.now() + 60000; fails.n = 0; }
+        return { ok: false, error: 'Username or password is incorrect.' };
+      }
+      fails.n = 0;
       if (u.role === 'guard') {
         const g = db.get('guards', u.guardId);
         if (!g) return { ok: false, error: 'This login is not linked to a guard record.' };
         if (g.status !== 'Active') return { ok: false, error: 'This guard is marked ' + g.status + '. Contact your manager.' };
       }
-      SW.session = { userId: u.id, username: u.username, role: u.role, displayName: u.role === 'guard' ? (db.get('guards', u.guardId) || {}).name : u.displayName, guardId: u.guardId || null, siteIds: u.siteIds || [], at: Date.now() };
+      SW.session = { userId: u.username, username: u.username, role: u.role, displayName: u.role === 'guard' ? (db.get('guards', u.guardId) || {}).name || u.displayName : u.displayName, guardId: u.guardId || null, siteIds: u.siteIds || [], at: Date.now(), hash: u.hash.slice(0, 12) };
       localStorage.setItem(SESSION_KEY, JSON.stringify(SW.session));
       await db.audit('Signed in', { subject: u.role });
       return { ok: true, session: SW.session };
@@ -65,15 +63,64 @@
     restore() {
       try {
         const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-        if (s && Date.now() - s.at < 16 * 3600 * 1000 && db.get('users', s.userId)) { SW.session = s; return s; }
+        if (remote()) {
+          // stays signed in (also offline) until signing out or the server rejects the login
+          if (s && s.remote && SW.remote.hasTokens()) { SW.session = s; return s; }
+        } else {
+          const u = s && users().find((x) => x.username === s.username);
+          if (s && u && u.hash.slice(0, 12) === s.hash && Date.now() - s.at < 14 * 3600 * 1000) { SW.session = s; return s; }
+        }
       } catch (_) { /* ignore */ }
       localStorage.removeItem(SESSION_KEY);
       return null;
     },
     async logout() {
       if (SW.session) await db.audit('Signed out', { subject: SW.session.role });
+      if (remote() && SW.session) { try { await SW.remote.sync(); } catch (_) { /* best effort */ } await SW.remote.logout(); }
       SW.session = null;
       localStorage.removeItem(SESSION_KEY);
+    },
+  };
+
+  /* IDs shown to people (INC-2026-0001, PATROL-0001, SOS-0001). With the server these come
+   * from a shared counter so two phones never create the same number. */
+  SW.newId = async function (store, prefix, year) {
+    const pre = prefix + (year ? '-' + year : '');
+    if (remote() && SW.session && SW.session.remote) return SW.remote.nextId(pre);
+    return seq(store, prefix, year);
+  };
+
+  /* =========================================================
+   * SETUP from config.js (only used without the server)
+   * ========================================================= */
+  const CONFIG_STORES = ['sites', 'guards', 'patrolRoutes', 'checkpoints', 'siteInstructions', 'shifts'];
+  const KEEP_SHIFT = ['status', 'actualStart', 'actualEnd', 'clockInId', 'clockOutId'];
+  SW.setup = {
+    async apply(force) {
+      const C = window.SW_CONFIG;
+      if (!C || remote() || !C.shifts) return false;
+      const cur = db.settings();
+      if (!force && cur.configVersion === C.version) return false;
+      for (const store of CONFIG_STORES) {
+        const incoming = C[store] || [];
+        const ids = new Set(incoming.map((r) => r.id));
+        for (const r of incoming) {
+          const old = db.get(store, r.id);
+          const rec = Object.assign({}, old || {}, r, { source: 'config' });
+          if (store === 'shifts') {
+            if (old) KEEP_SHIFT.forEach((k) => { if (old[k] !== undefined) rec[k] = old[k]; });
+            if (!rec.status) rec.status = 'Scheduled';
+          }
+          if (store === 'guards' && old && old.siaCheckedAt) rec.siaCheckedAt = old.siaCheckedAt;
+          await db.put(store, rec);
+        }
+        for (const old of db.all(store).slice()) {
+          if (old.source === 'config' && !ids.has(old.id) && !(store === 'shifts' && old.status !== 'Scheduled')) await db.remove(store, old.id);
+        }
+      }
+      await db.saveSettings(Object.assign({}, C.settings || {}, { configVersion: C.version, demoMode: false }));
+      await db.audit('Setup loaded', { user: 'System', role: 'system', subject: 'config ' + C.version });
+      return true;
     },
   };
 
@@ -200,7 +247,7 @@
       const existing = Q.activePatrol(shift.id);
       if (existing) return existing;
       const p = {
-        id: seq('patrols', 'PATROL'),
+        id: await SW.newId('patrols', 'PATROL'),
         shiftId: shift.id, routeId, siteId: shift.siteId, guardId: shift.guardId,
         startAt: new Date().toISOString(), endAt: null, status: 'Active', pauses: [],
         explanation: '', explanationAt: null, missed: [], source: 'device',
@@ -291,7 +338,7 @@
 
     async submitIncident(shift, form, mediaFiles, gps) {
       const at = new Date();
-      const id = seq('incidents', 'INC', at.getFullYear());
+      const id = await SW.newId('incidents', 'INC', U.parts(at).year);
       const media = [];
       for (const f of mediaFiles) media.push(await db.putMedia(f.blob, { kind: f.kind, name: f.name, incidentId: id }));
       const rec = {
@@ -334,7 +381,7 @@
       while (limit.getTime() > due + grace && guardLoop++ < 50) {
         const dueIso = new Date(due).toISOString();
         if (!recs.some((w) => w.dueAt === dueIso)) {
-          const miss = { id: U.uid('WEL'), shiftId: shift.id, guardId: shift.guardId, siteId: shift.siteId, dueAt: dueIso, at: null, status: 'Missed', gps: null, source: 'device' };
+          const miss = { id: 'WEL-MISS-' + shift.id + '-' + dueIso.replace(/\D/g, '').slice(0, 12), shiftId: shift.id, guardId: shift.guardId, siteId: shift.siteId, dueAt: dueIso, at: null, status: 'Missed', gps: null, source: 'device' };
           await db.put('welfareChecks', miss);
           recs.push(miss);
           await db.audit('Welfare check missed', { siteId: shift.siteId, user: 'System', role: 'system', subject: 'Due ' + U.fmtTime(dueIso), related: shift.id });
@@ -358,7 +405,7 @@
 
     async activateSOS(shift) {
       const at = new Date().toISOString();
-      const rec = { id: seq('sosEvents', 'SOS'), at, guardId: shift.guardId, siteId: shift.siteId, shiftId: shift.id, gps: { ok: false, error: 'Locating…' }, status: 'Active', source: 'device' };
+      const rec = { id: await SW.newId('sosEvents', 'SOS'), at, guardId: shift.guardId, siteId: shift.siteId, shiftId: shift.id, gps: { ok: false, error: 'Locating…' }, status: 'Active', source: 'device' };
       await save('sosEvents', rec, 'SOS activated', { siteId: shift.siteId, related: rec.id });
       // Save first, then try for a GPS fix so the alert is never lost while waiting for location.
       rec.gps = await U.getGPS({ timeout: 12000, maxAge: 0 });
@@ -386,155 +433,25 @@
     },
 
     async processSync() {
-      const items = db.pending();
+      const items = db.pending().map((q) => Object.assign({}, q));
       if (!items.length) return 0;
       const ids = await SW.syncAdapter.push(items);
-      for (const q of items) if (ids.includes(q.id)) { q.synced = true; q.syncedAt = new Date().toISOString(); await db.put('syncQueue', q); }
-      await db.audit('Offline records synced', { user: 'System', role: 'system', subject: ids.length + ' record(s) — ' + SW.syncAdapter.name });
+      for (const q of items) {
+        if (!ids.includes(q.id)) continue;
+        const cur = db.get('syncQueue', q.id);
+        if (cur && cur.v === q.v) await db.remove('syncQueue', q.id); // unchanged since upload: done
+        else if (cur && !cur.v) await db.remove('syncQueue', q.id);
+      }
+      if (!SW.syncAdapter.remote) await db.audit('Offline records synced', { user: 'System', role: 'system', subject: ids.length + ' record(s) — ' + SW.syncAdapter.name });
       return ids.length;
     },
   };
 
-  /* =========================================================
-   * DEMO DATA — every record created here is tagged source:'demo'
-   * ========================================================= */
+  /* Simulated position for training scans (only when training mode is switched on) */
   SW.demo = {
-    SITE_GPS: { lat: 51.4816, lng: -3.1791 },
     fakeGpsNear(cp) {
       const j = () => (Math.random() - 0.5) * 0.00012;
-      return { ok: true, lat: +((cp.lat || 51.4816) + j()).toFixed(6), lng: +((cp.lng || -3.1791) + j()).toFixed(6), accuracy: 6 + Math.round(Math.random() * 10), at: new Date().toISOString(), simulated: true };
-    },
-
-    async seed() {
-      await db.clearAll();
-      const now = new Date();
-      const S = 'S-001', R = 'R-001', R2 = 'R-002';
-      const base = SW.demo.SITE_GPS;
-      const demo = { source: 'demo' };
-
-      await db.put('settings', { id: 'app', welfareInterval: 60, welfareGrace: 10, patrolFrequency: 120, gpsRadius: 75, licenceWarnDays: 60, demoMode: true, companyName: 'SecureWatch Security Ltd' });
-
-      const yr = now.getFullYear();
-      const iso = (d) => U.ymd(d);
-      await db.putMany('guards', [
-        Object.assign({ id: 'G-001', name: 'John Smith', siaNumber: '1012345678901234', siaLicenceType: 'Security Guarding', siaExpiry: iso(U.addDays(now, 420)), siaCheckedAt: null, phone: '07700 900123', email: 'john.smith@example.com', status: 'Active' }, demo),
-        Object.assign({ id: 'G-002', name: 'Priya Patel', siaNumber: '1012345678905678', siaLicenceType: 'Door Supervision', siaExpiry: iso(U.addDays(now, 34)), siaCheckedAt: null, phone: '07700 900456', email: 'priya.patel@example.com', status: 'Active' }, demo),
-        Object.assign({ id: 'G-003', name: 'Mark Evans', siaNumber: '1012345678909012', siaLicenceType: 'Security Guarding', siaExpiry: iso(U.addDays(now, -12)), siaCheckedAt: null, phone: '07700 900789', email: 'mark.evans@example.com', status: 'Suspended' }, demo),
-      ]);
-
-      await db.put('sites', Object.assign({
-        id: S, name: 'Cardiff Business Centre', address: 'Example Business Park, Cardiff CF10 (demo address)',
-        client: 'Example Property Management Ltd', contactName: 'Facilities Manager (demo)', contactPhone: '029 2000 0000',
-        emergencyContacts: 'Emergency services: 999\nPolice non-emergency: 101\nKeyholder (demo): 07700 900000\nOps control (demo): 07700 900111',
-        lat: base.lat, lng: base.lng,
-      }, demo));
-      await db.put('siteInstructions', Object.assign({ id: 'INS-' + S, siteId: S, version: 1, updatedBy: 'Ops Manager (demo)', text:
-        'Check all external doors during every patrol.\nReport suspicious persons immediately.\nFire exits must remain clear.\nNo unauthorised visitors after 22:00.\nCheck loading bay every patrol.\nReport maintenance issues with photographs.' }, demo));
-
-      await db.putMany('patrolRoutes', [
-        Object.assign({ id: R, siteId: S, name: 'Patrol 1 — Ground Floor', description: 'Full ground floor and external perimeter check.' }, demo),
-        Object.assign({ id: R2, siteId: S, name: 'Patrol 2 — Upper Floors', description: 'Optional upper floor sweep (demo of a second route).' }, demo),
-      ]);
-      const cpDefs = [
-        ['Main Entrance', 'Front doors and revolving door lock', 0, 0],
-        ['Reception', 'Reception desk, visitor book and key cabinet', 0.00008, 0.0001],
-        ['Fire Exit A', 'East stairwell fire door — must be closed and clear', 0.00025, 0.00032],
-        ['Loading Bay', 'Roller shutters and goods-in door', 0.0004, -0.0001],
-        ['Car Park', 'Barrier, CCTV column and perimeter fence', -0.0003, -0.0004],
-        ['Rear Entrance', 'Staff entrance and bin store', 0.0002, -0.0005],
-      ];
-      const cps = cpDefs.map((d, i) => Object.assign({
-        id: 'CP-00' + (i + 1), siteId: S, routeId: R, order: i + 1, name: d[0], description: d[1],
-        lat: +(base.lat + d[2]).toFixed(6), lng: +(base.lng + d[3]).toFixed(6), qr: 'SECUREWATCH:' + S + ':CP-00' + (i + 1) + ':' + U.token(6), required: true,
-      }, demo));
-      cps.push(Object.assign({ id: 'CP-101', siteId: S, routeId: R2, order: 1, name: 'First Floor Lobby', description: 'Lift lobby and comms room door', lat: base.lat, lng: base.lng, qr: 'SECUREWATCH:' + S + ':CP-101:' + U.token(6), required: true }, demo));
-      cps.push(Object.assign({ id: 'CP-102', siteId: S, routeId: R2, order: 2, name: 'Roof Access', description: 'Roof hatch locked', lat: base.lat, lng: base.lng, qr: 'SECUREWATCH:' + S + ':CP-102:' + U.token(6), required: false }, demo));
-      await db.putMany('checkpoints', cps);
-      const groundCps = cps.slice(0, 6);
-
-      /* Current shift: starts ~30 min ago, 12 hours long, not yet started (so it can be demonstrated). */
-      const curStart = new Date(now);
-      curStart.setMinutes(Math.floor(curStart.getMinutes() / 15) * 15 - 30, 0, 0);
-      const curEnd = new Date(curStart.getTime() + 12 * 3600000);
-      const hm = (d) => U.pad(d.getHours()) + ':' + U.pad(d.getMinutes());
-      const shifts = [];
-      shifts.push(Object.assign({ id: 'SH-CURRENT', guardId: 'G-001', siteId: S, date: U.ymd(curStart), start: hm(curStart), end: hm(curEnd), startAt: curStart.toISOString(), endAt: curEnd.toISOString(), patrolFreq: 120, welfareFreq: 60, status: 'Scheduled' }, demo));
-
-      /* Upcoming shifts */
-      for (let k = 1; k <= 3; k++) {
-        const st = U.combine(U.ymd(U.addDays(curStart, k)), '20:00');
-        const en = new Date(st.getTime() + 12 * 3600000);
-        shifts.push(Object.assign({ id: 'SH-NEXT-' + k, guardId: k === 2 ? 'G-002' : 'G-001', siteId: S, date: U.ymd(st), start: '20:00', end: '08:00', startAt: st.toISOString(), endAt: en.toISOString(), patrolFreq: 120, welfareFreq: 60, status: 'Scheduled' }, demo));
-      }
-
-      /* Three completed night shifts before the current one */
-      let night = U.combine(U.ymd(U.addDays(curStart, -1)), '20:00');
-      while (night.getTime() + 12 * 3600000 > curStart.getTime()) night = U.addDays(night, -1);
-      const atts = [], patrols = [], scans = [], welfare = [], incidents = [], audits = [];
-      let patrolNo = 0;
-      const pid = () => 'PATROL-' + String(++patrolNo).padStart(4, '0');
-      const gpsAt = (lat, lng) => ({ ok: true, lat: +(lat + (Math.random() - 0.5) * 0.0001).toFixed(6), lng: +(lng + (Math.random() - 0.5) * 0.0001).toFixed(6), accuracy: 5 + Math.round(Math.random() * 12) });
-      const audit = (at, action, subject, related, user) => audits.push(Object.assign({ id: U.uid('AUD'), at: new Date(at).toISOString(), user: user || 'John Smith', role: 'guard', action, siteId: S, subject: subject || '', related: related || '' }, demo));
-
-      for (let n = 2; n >= 0; n--) {
-        const st = U.addDays(night, -n);
-        const en = new Date(st.getTime() + 12 * 3600000);
-        const shId = 'SH-PAST-' + (3 - n);
-        const actualStart = new Date(st.getTime() - 4 * 60000);
-        const actualEnd = new Date(en.getTime() + 3 * 60000);
-        shifts.push(Object.assign({ id: shId, guardId: 'G-001', siteId: S, date: U.ymd(st), start: '20:00', end: '08:00', startAt: st.toISOString(), endAt: en.toISOString(), patrolFreq: 120, welfareFreq: 60, status: 'Completed', actualStart: actualStart.toISOString(), actualEnd: actualEnd.toISOString() }, demo));
-        atts.push(Object.assign({ id: U.uid('ATT'), type: 'Clock in', shiftId: shId, guardId: 'G-001', siteId: S, at: actualStart.toISOString(), gps: gpsAt(base.lat, base.lng), distance: 9, device: { browser: 'Chrome', os: 'Android', standalone: true } }, demo));
-        atts.push(Object.assign({ id: U.uid('ATT'), type: 'Clock out', shiftId: shId, guardId: 'G-001', siteId: S, at: actualEnd.toISOString(), gps: gpsAt(base.lat, base.lng), distance: 12, device: { browser: 'Chrome', os: 'Android', standalone: true } }, demo));
-        audit(actualStart, 'Shift started', 'GPS ±9 m', shId);
-        audit(actualEnd, 'Shift ended', 'GPS ±11 m', shId);
-
-        for (let p = 0; p < 6; p++) {
-          const pStart = new Date(st.getTime() + p * 2 * 3600000 + 2 * 60000);
-          const id = pid();
-          const incomplete = n === 1 && p === 3;
-          let t = pStart.getTime();
-          const done = incomplete ? groundCps.slice(0, 4) : groundCps;
-          done.forEach((cp) => {
-            t += (3 + Math.round(Math.random() * 3)) * 60000;
-            scans.push(Object.assign({ id: U.uid('SCN'), patrolId: id, routeId: R, checkpointId: cp.id, siteId: S, guardId: 'G-001', at: new Date(t).toISOString(), gps: gpsAt(cp.lat, cp.lng), distance: 6, locationStatus: 'Verified', status: 'Valid', method: 'camera' }, demo));
-          });
-          const pEnd = new Date(t + 2 * 60000);
-          patrols.push(Object.assign({
-            id, shiftId: shId, routeId: R, siteId: S, guardId: 'G-001', startAt: pStart.toISOString(), endAt: pEnd.toISOString(),
-            status: incomplete ? 'Incomplete' : 'Complete', pauses: [], total: 6, verified: done.length,
-            missed: incomplete ? groundCps.slice(4).map((c) => ({ id: c.id, name: c.name, required: true })) : [],
-            explanation: incomplete ? 'Car park barrier jammed and gate to rear entrance locked by client contractor. Reported to keyholder.' : '',
-            explanationAt: incomplete ? pEnd.toISOString() : null,
-          }, demo));
-          audit(pStart, 'Patrol started', 'Patrol 1 — Ground Floor', id);
-          audit(pEnd, incomplete ? 'Patrol ended incomplete' : 'Patrol completed', done.length + '/6 checkpoints', id);
-        }
-        for (let w = 1; w <= 12; w++) {
-          const due = new Date(actualStart.getTime() + w * 3600000);
-          if (due > actualEnd) break;
-          const missed = n === 0 && w === 7;
-          welfare.push(Object.assign({ id: U.uid('WEL'), shiftId: shId, guardId: 'G-001', siteId: S, dueAt: due.toISOString(), at: missed ? null : new Date(due.getTime() + (1 + Math.round(Math.random() * 4)) * 60000).toISOString(), status: missed ? 'Missed' : 'Confirmed', gps: missed ? null : gpsAt(base.lat, base.lng) }, demo));
-        }
-      }
-      const latest = U.addDays(night, 0);
-      const i1 = new Date(latest.getTime() + (2 * 60 + 14) * 60000);
-      const i2 = new Date(latest.getTime() + (6 * 60 + 35) * 60000);
-      const i3 = new Date(U.addDays(latest, -1).getTime() + (4 * 60 + 5) * 60000);
-      incidents.push(Object.assign({ id: 'INC-' + yr + '-0001', at: i3.toISOString(), siteId: S, guardId: 'G-001', shiftId: 'SH-PAST-2', type: 'Alarm', severity: 'High', description: 'Intruder alarm activated in Zone 3 (loading bay). Area checked with torch, no sign of forced entry. Alarm reset with ARC. Keyholder informed.', locationNote: 'Loading Bay', gps: gpsAt(base.lat + 0.0004, base.lng - 0.0001), media: [], witness: '', police: 'No', emergency: 'No', status: 'Resolved', statusHistory: [{ status: 'Open', at: i3.toISOString(), by: 'John Smith' }, { status: 'Resolved', at: new Date(i3.getTime() + 9 * 3600000).toISOString(), by: 'Ops Manager (demo)', note: 'False alarm — sensor fault logged with maintenance.' }] }, demo));
-      incidents.push(Object.assign({ id: 'INC-' + yr + '-0002', at: i1.toISOString(), siteId: S, guardId: 'G-001', shiftId: 'SH-PAST-3', type: 'Unauthorised Access', severity: 'Medium', description: 'Male found in reception claiming to be a contractor, not on the visitor list. Asked to leave and escorted off site without incident. Description recorded.', locationNote: 'Reception', gps: gpsAt(base.lat + 0.00008, base.lng + 0.0001), media: [], witness: 'Cleaner on site (name withheld)', police: 'No', emergency: 'No', status: 'Under Review', statusHistory: [{ status: 'Open', at: i1.toISOString(), by: 'John Smith' }, { status: 'Under Review', at: new Date(i1.getTime() + 3600000).toISOString(), by: 'Ops Manager (demo)' }] }, demo));
-      incidents.push(Object.assign({ id: 'INC-' + yr + '-0003', at: i2.toISOString(), siteId: S, guardId: 'G-001', shiftId: 'SH-PAST-3', type: 'Maintenance Issue', severity: 'Low', description: 'Emergency light above Fire Exit A not working. Exit itself clear and door closes correctly.', locationNote: 'Fire Exit A', gps: gpsAt(base.lat + 0.00025, base.lng + 0.00032), media: [], witness: '', police: 'No', emergency: 'No', status: 'Open', statusHistory: [{ status: 'Open', at: i2.toISOString(), by: 'John Smith' }] }, demo));
-      incidents.forEach((i) => audit(i.at, 'Incident reported', i.type + ' (' + i.severity + ')', i.id));
-      audits.push(Object.assign({ id: U.uid('AUD'), at: new Date().toISOString(), user: 'System', role: 'system', action: 'Demo data loaded', siteId: S, subject: '', related: '' }, demo));
-
-      await db.putMany('shifts', shifts);
-      await db.putMany('attendance', atts);
-      await db.putMany('patrols', patrols);
-      await db.putMany('checkpointScans', scans);
-      await db.putMany('welfareChecks', welfare);
-      await db.putMany('incidents', incidents);
-      await db.putMany('instructionAcks', [Object.assign({ id: U.uid('ACK'), siteId: S, guardId: 'G-001', version: 0, at: U.addDays(now, -5).toISOString() }, demo)]);
-      await db.putMany('auditLogs', audits);
-      await SW.auth.ensureDemoUsers();
+      return { ok: true, lat: +((cp.lat || 51.5) + j()).toFixed(6), lng: +((cp.lng || -3.1) + j()).toFixed(6), accuracy: 6 + Math.round(Math.random() * 10), at: new Date().toISOString(), simulated: true };
     },
   };
 })();

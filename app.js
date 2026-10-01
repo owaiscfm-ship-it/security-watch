@@ -13,8 +13,9 @@
   app.boot = async function () {
     try {
       await db.init();
-      if (!db.get('settings', 'app')) await SW.demo.seed(); // first run: load demo so the app is never empty
-      await SW.auth.ensureDemoUsers();
+      if (!window.SW_CONFIG) throw new Error('config.js is missing. Upload config.js to the same folder as index.html.');
+      if (SW.remote.misconfigured) throw new Error('The server key is missing in config.js. Paste the Supabase publishable (anon) key into config.js.');
+      await SW.setup.apply(); // without a server: loads the site, guards and rota from config.js
       SW.auth.restore();
     } catch (e) {
       root().innerHTML = '<div class="fatal"><h1>SecureWatch could not start</h1><p>' + esc(e.message) + '</p><p>Try closing other SecureWatch tabs, or use a browser that allows site storage.</p></div>';
@@ -27,6 +28,7 @@
     app.route();
     if (navigator.onLine && db.pending().length) app.sync();
     registerSW();
+    if (SW.remote.enabled) startSyncLoop();
   };
 
   /* ---------------- Router ---------------- */
@@ -54,6 +56,34 @@
     else if (area === 'client') { document.title = 'SecureWatch — Client portal'; SW.client.mount(el); }
   }
 
+  /* ---------------- Server sync loop ---------------- */
+  function startSyncLoop() {
+    const tick = async () => {
+      if (!SW.session || !SW.session.remote || document.hidden) return;
+      const n = await SW.remote.sync();
+      if (n > 0) refreshView();
+      const dot = document.getElementById('m-net') || document.getElementById('g-net');
+      if (dot && SW.remote.lastError && navigator.onLine) dot.title = 'Sync problem: ' + SW.remote.lastError;
+    };
+    setInterval(tick, 20000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+    setTimeout(tick, 1500);
+    app.syncNow = async () => { const n = await SW.remote.sync(); refreshView(); return n; };
+  }
+  function refreshView() {
+    if (document.querySelector('.modal-wrap, .g-ov')) return; // never interrupt a dialog or form overlay
+    if (mounted === 'manager' && ['dashboard', 'live', 'patrols', 'incidents', 'welfare', 'audit', 'shifts', 'guards'].includes(SW.manager.view)) SW.manager.render(true);
+    else if (mounted === 'guard' && ['home', 'patrol'].includes(SW.guard.tab) && !SW.guard.sub) SW.guard.render();
+    else if (mounted === 'client') { const h = document.getElementById('c-view'); if (h) SW.client.render(h, SW.session.siteIds, false); }
+  }
+  app.sessionExpired = function () {
+    if (!SW.session) return;
+    SW.session = null;
+    localStorage.removeItem('sw_session');
+    U.toast('Your login has ended (password changed or access removed). Sign in again.', 'error', 7000);
+    location.hash = '#/login'; mounted = null; app.route();
+  };
+
   app.logout = async function () {
     await SW.auth.logout();
     location.hash = '#/login';
@@ -63,41 +93,31 @@
 
   /* ---------------- Login ---------------- */
   function renderLogin(el) {
-    const role = sessionStorage.getItem('sw_role') || 'guard';
+    const C = window.SW_CONFIG || {};
     el.innerHTML =
       '<div class="login">' +
       '<section class="login-side"><div class="m-brand big"><span class="logo-mark" aria-hidden="true"></span><div><strong>SecureWatch</strong><small>Security Operations &amp; Patrol Management</small></div></div>' +
-      '<p class="login-copy">Patrol checkpoints, incidents, welfare checks and daily reports for SIA-licensed officers.</p>' +
-      '<ul class="login-points"><li>Guard app works offline inside buildings</li><li>QR checkpoint scanning with GPS capture</li><li>Printable daily security reports</li></ul></section>' +
+      '<p class="login-copy">' + esc((C.settings && C.settings.companyName) || 'Security operations') + '</p>' +
+      '<ul class="login-points"><li>Patrol checkpoints with GPS</li><li>Incident reports and welfare checks</li><li>Daily security reports</li></ul></section>' +
       '<section class="login-main"><form id="login-form" class="login-card" novalidate>' +
       '<h1>Sign in</h1>' +
-      '<div class="seg seg-role" role="radiogroup" aria-label="Sign in as">' +
-      ['guard', 'manager', 'client'].map((r) => '<label><input type="radio" name="role" value="' + r + '"' + (r === role ? ' checked' : '') + '><span>' + r[0].toUpperCase() + r.slice(1) + '</span></label>').join('') + '</div>' +
-      '<label class="fld"><span>Username</span><input name="username" autocomplete="username" autocapitalize="none" maxlength="40" required></label>' +
+      '<p class="muted">Use the username and password given to you by your manager.</p>' +
+      '<label class="fld"><span>Username</span><input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="40" required></label>' +
       '<label class="fld"><span>Password</span><input name="password" type="password" autocomplete="current-password" maxlength="100" required></label>' +
       '<p class="login-err" id="login-err" role="alert"></p>' +
       '<button class="btn btn-primary btn-block btn-lg" id="login-btn">Sign in</button>' +
-      '<div class="demo-creds"><p><b>Demo credentials</b> — for demonstration only, not secure authentication.</p>' +
-      '<div class="demo-row">' + SW.auth.DEMO.map((d) => '<button type="button" class="btn btn-sm btn-secondary" data-demo="' + d.username + '">' + d.role[0].toUpperCase() + d.role.slice(1) + ': ' + d.username + ' / ' + d.password + '</button>').join('') + '</div></div>' +
-      '<p class="login-foot"><a href="#" id="privacy-link">Privacy notice</a> — Prototype: data is stored only in this browser.</p>' +
+      '<p class="login-foot"><a href="#" id="privacy-link">Privacy notice</a> — Authorised users only. Activity is logged.</p>' +
+      '<p class="credit">SecureWatch by Syed Owais</p>' +
       '</form></section></div>';
     const f = U.$('#login-form');
-    f.querySelectorAll('[data-demo]').forEach((b) => (b.onclick = () => {
-      const d = SW.auth.DEMO.find((x) => x.username === b.dataset.demo);
-      f.username.value = d.username; f.password.value = d.password;
-      f.querySelector('[name=role][value=' + d.role + ']').checked = true;
-      f.requestSubmit ? f.requestSubmit() : f.dispatchEvent(new Event('submit', { cancelable: true }));
-    }));
     U.$('#privacy-link').onclick = (e) => { e.preventDefault(); U.modal({ title: 'Privacy notice', body: app.privacyHtml(), wide: true, actions: [{ label: 'Close', cls: 'btn-primary' }] }); };
     f.onsubmit = async (e) => {
       e.preventDefault();
       const err = U.$('#login-err');
-      const r = f.querySelector('[name=role]:checked').value;
-      sessionStorage.setItem('sw_role', r);
       if (!f.username.value || !f.password.value) { err.textContent = 'Enter your username and password.'; return; }
-      const btn = U.$('#login-btn'); btn.disabled = true; btn.textContent = 'Signing in…';
-      const res = await SW.auth.login(f.username.value, f.password.value, r);
-      if (!res.ok) { err.textContent = res.error; btn.disabled = false; btn.textContent = 'Sign in'; return; }
+      const btn = U.$('#login-btn'); btn.disabled = true; btn.textContent = SW.remote.enabled ? 'Signing in and loading data…' : 'Signing in…';
+      const res = await SW.auth.login(f.username.value, f.password.value);
+      if (!res.ok) { err.textContent = res.error; btn.disabled = false; btn.textContent = 'Sign in'; f.password.value = ''; return; }
       mounted = null;
       location.hash = '#/' + res.session.role + (res.session.role === 'manager' ? '/dashboard' : '');
       app.route();
@@ -184,17 +204,6 @@
     if (SW.manager && mounted === 'manager') SW.manager.render();
   };
 
-  app.resetDemo = async function () {
-    if (!(await U.confirm('Reset demo data?', 'All data on this device will be replaced with fresh demo data. You will be signed out.', 'Reset demo data', true))) return;
-    await SW.demo.seed();
-    SW.session = null;
-    localStorage.removeItem('sw_session');
-    U.toast('Demo data reset', 'ok');
-    location.hash = '#/login';
-    mounted = null;
-    app.route();
-  };
-
   /* ---------------- Printing ---------------- */
   app.print = function (html, title) {
     let host = document.getElementById('print-root');
@@ -213,7 +222,9 @@
     return '<div class="privacy">' +
       '<p><b>What this app records.</b> Shift clock-in and clock-out times, GPS position and accuracy when you start or end a shift, scan a checkpoint, confirm a welfare check, report an incident or activate SOS; incident details and any photos, video or voice notes you attach; basic device information (browser and operating system); and an audit log of actions.</p>' +
       '<p><b>Location.</b> Location is captured only at the moment of those actions. SecureWatch does not track you continuously in the background.</p>' +
-      '<p><b>Where data is kept.</b> In this prototype everything is stored in this browser on this device (IndexedDB). Nothing is sent to a server. Clearing the browser\u2019s site data deletes it. Anyone with access to this device and browser can view it.</p>' +
+      (SW.remote && SW.remote.enabled
+        ? '<p><b>Where data is kept.</b> Records are stored on this device and on the company\u2019s SecureWatch server (Supabase, London, UK). Access is restricted by login: guards see only their own shifts and records, clients have read-only access to their site, and managers see everything.</p>'
+        : '<p><b>Where data is kept.</b> In this prototype everything is stored in this browser on this device (IndexedDB). Nothing is sent to a server. Clearing the browser\u2019s site data deletes it. Anyone with access to this device and browser can view it.</p>') +
       '<p><b>Sharing.</b> Data leaves the device only if a user exports a file (backup, CSV or printed report).</p>' +
       '<p><b>Your employer is the data controller.</b> Before real use, your employer must complete its own data protection assessment, publish a full privacy notice, set retention periods and deploy proper authentication and access control. This prototype does not by itself make any organisation GDPR or UK GDPR compliant.</p>' +
       '</div>';

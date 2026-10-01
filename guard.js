@@ -42,7 +42,7 @@
       '<div class="g-brand"><span class="logo-mark sm" aria-hidden="true"></span><div><strong>SecureWatch</strong><small id="g-site">—</small></div></div>' +
       '<div class="g-chips"><button class="chip" id="g-gps" aria-label="GPS status — tap to refresh"></button><span class="chip" id="g-net"></span></div>' +
       '</header>' +
-      (db.settings().demoMode ? '<div class="demo-strip">Demo mode — sample data is shown alongside real device data</div>' : '') +
+      (db.settings().demoMode ? '<div class="demo-strip">Training mode — simulated scans are allowed</div>' : '') +
       '<div id="g-alert"></div>' +
       '<main class="g-main" id="g-view" tabindex="-1"></main>' +
       '<nav class="g-nav" aria-label="Guard navigation">' +
@@ -315,7 +315,7 @@
         '<a class="g-btn g-btn-white" href="tel:999">Call 999</a>' +
         '<div class="ov-box"><p><b>Recorded:</b> ' + U.fmtDateTime(rec.at) + '<br><b>Location:</b> ' + esc(U.gpsLabel(rec.gps)) + '</p>' +
         (site && site.emergencyContacts ? '<p class="pre">' + esc(site.emergencyContacts) + '</p>' : '') +
-        '<p class="ov-small">This alert is saved on this phone and shows on the management dashboard opened on this device. No text, call or alert has been sent to anyone automatically.</p></div>' +
+        '<p class="ov-small">' + (SW.remote.enabled ? 'This alert is saved and sent to the management dashboard when the phone has signal. ' : 'This alert is saved on this phone and shows on the management dashboard opened on this device. ') + 'No text message or phone call is sent automatically — call for help yourself if needed.</p></div>' +
         '<button class="g-btn g-btn-ghost" id="sos-close">Close</button></div>';
       ov.querySelector('#sos-close').onclick = () => { ov.remove(); G.render(); };
     };
@@ -578,6 +578,8 @@
     if (!s) { v.innerHTML = lockedHtml('Start your shift to report an incident. In an emergency call 999.'); bindLocked(v); return; }
     G.media = [];
     let incGps = null;
+    const site = Q.site(s.siteId) || {};
+    const mediaOk = site.mediaAllowed !== false;
     v.innerHTML =
       '<h1 class="g-h1">Report incident</h1>' +
       '<p class="g-sub">Date, time and location are added automatically. <span id="inc-gps" class="muted">Getting location…</span></p>' +
@@ -586,11 +588,13 @@
       '<fieldset><legend>Severity</legend><div class="seg seg-sev">' + SEV.map((t) => '<label><input type="radio" name="severity" value="' + t + '"><span class="sev-' + t.toLowerCase() + '">' + t + '</span></label>').join('') + '</div></fieldset>' +
       '<label class="fld fld-dark"><span>What happened?</span><textarea name="description" rows="6" maxlength="5000" placeholder="Who, what, where, when. Include descriptions of people or vehicles."></textarea></label>' +
       '<label class="fld fld-dark"><span>Where on site (optional)</span><input name="locationNote" maxlength="200" placeholder="For example Loading Bay"></label>' +
-      '<fieldset><legend>Evidence</legend><div class="media-btns">' +
-      '<label class="g-btn g-btn-ghost file-btn">Add photo<input type="file" accept="image/*" capture="environment" multiple data-kind="photo" hidden></label>' +
-      '<label class="g-btn g-btn-ghost file-btn">Add video<input type="file" accept="video/*" capture="environment" data-kind="video" hidden></label>' +
-      '<button type="button" class="g-btn g-btn-ghost" id="rec-btn">Record voice note</button>' +
-      '</div><div id="media-list" class="media-list"></div></fieldset>' +
+      (mediaOk
+        ? '<fieldset><legend>Evidence</legend><div class="media-btns">' +
+          '<label class="g-btn g-btn-ghost file-btn">Add photo<input type="file" accept="image/*" capture="environment" multiple data-kind="photo" hidden></label>' +
+          '<label class="g-btn g-btn-ghost file-btn">Add video<input type="file" accept="video/*" capture="environment" data-kind="video" hidden></label>' +
+          '<button type="button" class="g-btn g-btn-ghost" id="rec-btn">Record voice note</button>' +
+          '</div><div id="media-list" class="media-list"></div></fieldset>'
+        : '<div class="g-locked"><p>Photos, video and audio recordings are not allowed on this site under the client contract. Describe what you saw in writing.</p></div>') +
       '<label class="fld fld-dark"><span>Witness name (optional)</span><input name="witness" maxlength="120" autocomplete="off"></label>' +
       '<fieldset><legend>Police contacted?</legend><div class="seg"><label><input type="radio" name="police" value="Yes"><span>Yes</span></label><label><input type="radio" name="police" value="No"><span>No</span></label></div></fieldset>' +
       '<fieldset><legend>Emergency services contacted?</legend><div class="seg"><label><input type="radio" name="emergency" value="Yes"><span>Yes</span></label><label><input type="radio" name="emergency" value="No"><span>No</span></label></div></fieldset>' +
@@ -610,8 +614,10 @@
       drawMedia();
     }));
     const rec = U.$('#rec-btn', v);
-    if (!window.MediaRecorder || !navigator.mediaDevices) { rec.disabled = true; rec.textContent = 'Voice notes not supported'; }
-    else rec.onclick = () => toggleRecord(rec);
+    if (rec) {
+      if (!window.MediaRecorder || !navigator.mediaDevices) { rec.disabled = true; rec.textContent = 'Voice notes not supported'; }
+      else rec.onclick = () => toggleRecord(rec);
+    }
     U.$('#inc-form', v).onsubmit = async (e) => {
       e.preventDefault();
       const f = e.target;
@@ -673,7 +679,7 @@
     if (!inc) { G.sub = null; renderIncident(v); return; }
     v.innerHTML = '<section class="g-result ok"><div class="ov-icon">' + ICON.incident + '</div><h1>Incident submitted</h1><p class="big">' + esc(inc.id) + '</p>' +
       '<dl><dt>Type</dt><dd>' + esc(inc.type) + '</dd><dt>Severity</dt><dd>' + esc(inc.severity) + '</dd><dt>Time</dt><dd>' + U.fmtDateTime(inc.at) + '</dd><dt>Location</dt><dd>' + esc(U.gpsLabel(inc.gps)) + '</dd><dt>Evidence</dt><dd>' + inc.media.length + ' file(s)</dd></dl>' +
-      '<p class="ov-small">Saved on this device' + (navigator.onLine ? '' : ' while offline') + '. Managers see it on the dashboard opened on this device or after a data transfer.</p></section>' +
+      '<p class="ov-small">' + (SW.remote.enabled ? (navigator.onLine ? 'Saved and sent to the server.' : 'Saved on this phone. It uploads automatically when you have signal.') : 'Saved on this device. Managers see it on the dashboard opened on this device or after a data transfer.') + '</p></section>' +
       '<button class="g-btn g-btn-primary g-btn-xl" id="id-home">Back to home</button><button class="g-btn g-btn-ghost" id="id-new">Report another</button>';
     U.$('#id-home', v).onclick = () => G.go('home');
     U.$('#id-new', v).onclick = () => G.go('incident');
@@ -691,15 +697,17 @@
       item('instructions', ICON.book, 'Site instructions') +
       item('welfare', ICON.welfare, 'Welfare check') +
       item('log', ICON.patrol, 'My shift activity') +
-      item('export', ICON.end, 'Send my data to a manager') +
+      (SW.remote.enabled ? item('syncnow', ICON.end, 'Sync now') : item('export', ICON.end, 'Send my data to a manager')) +
       item('privacy', ICON.book, 'Privacy notice') +
       item('logout', ICON.end, 'Sign out') +
       '</div>' +
-      '<p class="g-meta">Signed in as ' + esc(SW.session.displayName) + '. Storage: ' + (db.mode === 'indexeddb' ? 'IndexedDB on this device' : 'browser storage (limited)') + '.</p>';
+      '<p class="g-meta">Signed in as ' + esc(SW.session.displayName) + '. ' + (SW.remote.enabled ? 'Waiting to upload: ' + db.pending().length + '.' : 'Storage: ' + (db.mode === 'indexeddb' ? 'IndexedDB on this device' : 'browser storage (limited)') + '.') + '</p>' +
+      '<p class="credit">SecureWatch by Syed Owais</p>';
     v.querySelectorAll('[data-item]').forEach((b) => (b.onclick = async () => {
       const k = b.dataset.item;
       if (k === 'logout') { if (await U.confirm('Sign out?', onDuty() ? 'Your shift stays open. Sign back in to continue it.' : 'You will return to the sign-in screen.', 'Sign out')) SW.app.logout(); }
       else if (k === 'export') SW.app.exportBackup(true);
+      else if (k === 'syncnow') { if (!navigator.onLine) return U.toast('No signal. Your records are saved and will upload automatically.', 'info', 5000); await SW.app.syncNow(); U.toast(SW.remote.lastError ? 'Sync problem: ' + SW.remote.lastError : 'All data synced with the server', SW.remote.lastError ? 'error' : 'ok'); }
       else G.go('more', k);
     }));
   }

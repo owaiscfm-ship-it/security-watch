@@ -1,14 +1,16 @@
 /* SecureWatch service worker — caches the app shell so the guard app opens and works offline.
  * Data is stored in IndexedDB by the page, not here. Bump CACHE when you change any file. */
-const CACHE = 'securewatch-v1.0.1';
+const CACHE = 'securewatch-v2.0.0';
 const SHELL = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './manifest.json',
+  './config.js',
   './utils.js',
   './db.js',
+  './remote.js',
   './core.js',
   './guard.js',
   './manager.js',
@@ -41,6 +43,11 @@ self.addEventListener('fetch', (e) => {
 
   if (url.origin !== location.origin) return;
 
+  // config.js (site setup + logins): always try the network first so updates reach every device.
+  if (url.pathname.endsWith('/config.js')) {
+    e.respondWith(fetch(req, { cache: 'no-store' }).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./config.js', copy)); } return res; }).catch(() => caches.match('./config.js')));
+    return;
+  }
   // Page navigations: network first (fresh app), cached shell when offline.
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./index.html', copy)); } return res; }).catch(() => caches.match('./index.html')));

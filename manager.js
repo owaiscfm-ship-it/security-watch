@@ -31,9 +31,9 @@
       '<div class="m-app">' +
       '<aside class="m-side" id="m-side"><div class="m-brand"><span class="logo-mark" aria-hidden="true"></span><div><strong>SecureWatch</strong><small>Security Operations &amp; Patrol Management</small></div></div>' +
       '<nav aria-label="Management">' + NAV.map((n) => '<a href="#/manager/' + n[0] + '" data-v="' + n[0] + '"' + (n[0] === M.view ? ' aria-current="page"' : '') + '>' + ico(n[2]) + '<span>' + n[1] + '</span></a>').join('') + '</nav>' +
-      '<div class="m-side-foot"><span>' + esc(SW.session.displayName) + '</span><button class="link-btn" id="m-logout">Sign out</button></div></aside>' +
+      '<div class="m-side-foot"><span>' + esc(SW.session.displayName) + '</span><button class="link-btn" id="m-logout">Sign out</button></div><p class="credit credit-side">SecureWatch by Syed Owais</p></aside>' +
       '<div class="m-main"><header class="m-top"><button class="icon-btn m-burger" id="m-burger" aria-label="Menu">☰</button><h1 id="m-title"></h1><div class="m-top-r">' +
-      (db.settings().demoMode ? '<span class="badge badge-demo">Demo mode</span>' : '') +
+      (db.settings().demoMode ? '<span class="badge badge-demo">Training mode</span>' : '') +
       '<span class="chip ' + (navigator.onLine ? 'chip-ok' : 'chip-bad') + '" id="m-net"><i></i>' + (navigator.onLine ? 'Online' : 'Offline') + '</span>' +
       '<button class="btn btn-secondary btn-sm" id="m-refresh" title="Reload records saved on this device">Refresh</button></div></header>' +
       '<main class="m-content" id="m-view" tabindex="-1"></main></div></div>';
@@ -137,7 +137,7 @@
       row('Last checkpoint', cp ? esc(cp.name) + ' at ' + U.fmtTime(st.lastScan.at) + ' ' + src(st.lastScan) : '—') +
       row('Last welfare check', st.lastWel ? U.fmtTime(st.lastWel.at) + ' ' + src(st.lastWel) : '—') +
       '</dl>' +
-      '<p class="note">These are the last events <b>saved in this browser</b>. GPS is captured only when the guard performs an action (clock-in, scan, welfare, incident, SOS) — this is not continuous live tracking.</p>';
+      '<p class="note">' + (SW.remote.enabled ? 'Last events received from the guard\u2019s phone (devices sync about every 20 seconds while they have signal).' : 'These are the last events <b>saved in this browser</b>.') + ' GPS is captured only when the guard performs an action (clock-in, scan, welfare, incident, SOS) — this is not continuous live tracking.</p>';
   }
 
   function alertsHtml(siteIds, canAct) {
@@ -189,7 +189,7 @@
   VIEWS.live = function (v) {
     const shifts = Q.onDutyShifts();
     let html = alertsHtml(null, true) +
-      '<div class="note-box"><b>About this view.</b> SecureWatch on GitHub Pages has no server, so this page can only show records saved in <b>this browser</b>. If the guard uses a different phone, their records appear here only after they use <i>More › Send my data to a manager</i> and you import the file in Settings. Each event is labelled <span class="src src-dev">Device</span> (recorded by a real browser) or <span class="src src-demo">Demo</span> (sample data).</div>';
+      (SW.remote.enabled ? '<div class="note-box"><b>About this view.</b> Devices sync with the server about every 20 seconds while they have signal. GPS is captured only when the guard does something (clock in, scan, welfare, incident, SOS) — this is not continuous tracking.</div>' : '<div class="note-box"><b>About this view.</b> SecureWatch on GitHub Pages has no server, so this page can only show records saved in <b>this browser</b>. If the guard uses a different phone, their records appear here only after they use <i>More › Send my data to a manager</i> and you import the file in Settings. Each event is labelled <span class="src src-dev">Device</span> (recorded by a real browser) or <span class="src src-demo">Demo</span> (sample data).</div>');
     if (!shifts.length) html += card('Guard status', liveStatusBlock(M.status()));
     shifts.forEach((s) => {
       const st = M.status([s.siteId]);
@@ -227,13 +227,13 @@
     v.innerHTML = '<div class="toolbar"><p class="muted">Licence status is calculated from the expiry date entered. Always confirm licences on the <a href="https://services.sia.homeoffice.gov.uk/rolh" target="_blank" rel="noopener">SIA register of licence holders</a>.</p><button class="btn btn-primary" id="g-add">Add guard</button></div>' +
       card('Guards (' + rows.length + ')', table([
         { label: 'Name', html: (g) => '<b>' + esc(g.name) + '</b>' },
-        { label: 'SIA licence', html: (g) => '<span class="mono-ish">•••• •••• •••• ' + esc(String(g.siaNumber || '').slice(-4)) + '</span><small class="blk">' + esc(g.siaLicenceType || '') + '</small>' },
-        { label: 'Expiry', html: (g) => U.fmtDate(g.siaExpiry) },
-        { label: 'Licence status', html: (g) => { const l = U.licenceStatus(g.siaExpiry, warn); return U.badge(l.icon + ' ' + l.label, l.cls); } },
+        { label: 'SIA licence', html: (g) => '<span class="mono-ish">•••• ' + esc(String(g.siaNumber || '').slice(-4)) + '</span><small class="blk">' + esc(g.siaLicenceType || '') + '</small>' + (g.siaNumber2 ? '<span class="mono-ish blk">•••• ' + esc(String(g.siaNumber2).slice(-4)) + '</span><small class="blk">' + esc(g.siaLicenceType2 || 'Second licence') + '</small>' : '') },
+        { label: 'Expiry', html: (g) => U.fmtDate(g.siaExpiry) + (g.siaNumber2 ? '<span class="blk">' + U.fmtDate(g.siaExpiry2) + '</span>' : '') },
+        { label: 'Licence status', html: (g) => { const l = U.licenceStatus(g.siaExpiry, warn); let h = U.badge(l.icon + ' ' + l.label, l.cls); if (g.siaNumber2) { const l2 = U.licenceStatus(g.siaExpiry2, warn); h += '<span class="blk">' + U.badge(l2.icon + ' ' + l2.label, l2.cls) + '</span>'; } return h; } },
         { label: 'Register check', html: (g) => (g.siaCheckedAt ? 'Checked ' + U.fmtDate(g.siaCheckedAt) : '<span class="amber-text">Not checked</span>') },
         { label: 'Contact', html: (g) => esc(g.phone || '') + '<small class="blk">' + esc(g.email || '') + '</small>' },
         { label: 'Status', html: (g) => U.badge(g.status, g.status === 'Active' ? 'green' : g.status === 'Suspended' ? 'red' : 'grey') },
-        { label: 'Login', html: (g) => { const u = db.all('users').find((x) => x.guardId === g.id); return u ? esc(u.username) : '<span class="muted">None</span>'; } },
+        { label: 'Login', html: (g) => { if (SW.remote.enabled) return '<span class="muted">See Settings</span>'; const u = SW.auth.users().find((x) => x.guardId === g.id); return u ? esc(u.username) : '<span class="muted">None</span>'; } },
         { label: '', html: (g) => '<button class="btn btn-sm btn-secondary" data-edit="' + esc(g.id) + '">Edit</button>' },
       ], rows, 'No guards yet. Add your first guard.'));
     U.$('#g-add', v).onclick = () => guardForm();
@@ -243,7 +243,7 @@
   async function guardForm(g) {
     const isNew = !g;
     g = g || { status: 'Active' };
-    const user = !isNew ? db.all('users').find((x) => x.guardId === g.id) : null;
+    const user = !isNew ? SW.auth.users().find((x) => x.guardId === g.id) : null;
     const res = await U.modal({
       title: isNew ? 'Add guard' : 'Edit ' + g.name,
       wide: true,
@@ -253,12 +253,13 @@
         '<label class="fld"><span>SIA licence number * (16 digits)</span><input name="siaNumber" inputmode="numeric" maxlength="19" value="' + esc(U.fmtSia(g.siaNumber || '')) + '" autocomplete="off"></label>' +
         '<label class="fld"><span>Licence type</span><select name="siaLicenceType">' + ['Security Guarding', 'Door Supervision', 'CCTV (Public Space Surveillance)', 'Close Protection', 'Cash and Valuables in Transit', 'Key Holding', 'Vehicle Immobilising'].map((s) => opt(s, s, g.siaLicenceType)).join('') + '</select></label>' +
         '<label class="fld"><span>SIA licence expiry date *</span><input type="date" name="siaExpiry" value="' + esc(g.siaExpiry || '') + '"></label>' +
+        '<label class="fld"><span>Second SIA licence number (optional)</span><input name="siaNumber2" inputmode="numeric" maxlength="19" value="' + esc(U.fmtSia(g.siaNumber2 || '')) + '" autocomplete="off"></label>' +
+        '<label class="fld"><span>Second licence expiry</span><input type="date" name="siaExpiry2" value="' + esc(g.siaExpiry2 || '') + '"></label>' +
         '<label class="fld chk"><input type="checkbox" name="siaChecked"' + (g.siaCheckedAt ? ' checked' : '') + '><span>I have checked this licence on the SIA public register' + (g.siaCheckedAt ? ' (last ' + U.fmtDate(g.siaCheckedAt) + ')' : '') + '</span></label>' +
         '<label class="fld"><span>Phone</span><input name="phone" type="tel" maxlength="20" value="' + esc(g.phone || '') + '"></label>' +
         '<label class="fld"><span>Email</span><input name="email" type="email" maxlength="120" value="' + esc(g.email || '') + '"></label>' +
         '</div>' +
-        (user ? '<p class="muted">Login: <b>' + esc(user.username) + '</b></p>' :
-          '<fieldset class="sub-fs"><legend>Guard app login (optional)</legend><div class="form-grid"><label class="fld"><span>Username</span><input name="username" maxlength="40" autocomplete="off"></label><label class="fld"><span>Password (min 8 characters)</span><input name="password" type="password" maxlength="100" autocomplete="new-password"></label></div><p class="muted">Stored as a salted hash on this device only. Prototype — not secure authentication.</p></fieldset>'),
+        '<p class="muted">' + (user ? 'Login: <b>' + esc(user.username) + '</b>. ' : 'No login yet. ') + 'Logins are managed in Settings › Logins.</p>',
       actions: [].concat(isNew ? [] : [{ label: 'Delete', cls: 'btn-danger-ghost', value: 'delete' }]).concat([{ label: 'Cancel', value: null }, {
         label: isNew ? 'Add guard' : 'Save changes', cls: 'btn-primary', onClick: async (m) => {
           const f = formData(m);
@@ -268,16 +269,15 @@
           if (!U.validSia(f.siaNumber)) return fieldErr(m, 'siaNumber', 'SIA licence numbers are 16 digits.');
           if (db.all('guards').some((x) => x.siaNumber === f.siaNumber && x.id !== g.id)) return fieldErr(m, 'siaNumber', 'Another guard already has this licence number.');
           if (!/^\d{4}-\d{2}-\d{2}$/.test(f.siaExpiry)) return fieldErr(m, 'siaExpiry', 'Enter the licence expiry date.');
+          f.siaNumber2 = String(f.siaNumber2 || '').replace(/\s/g, '');
+          if (f.siaNumber2 && !U.validSia(f.siaNumber2)) return fieldErr(m, 'siaNumber2', 'SIA licence numbers are 16 digits.');
+          if (f.siaNumber2 && !/^\d{4}-\d{2}-\d{2}$/.test(f.siaExpiry2)) return fieldErr(m, 'siaExpiry2', 'Enter the second licence expiry date.');
           if (!U.validPhone(f.phone)) return fieldErr(m, 'phone', 'Enter a valid phone number.');
           if (!U.validEmail(f.email)) return fieldErr(m, 'email', 'Enter a valid email address.');
-          const rec = Object.assign(g, { name: f.name, status: f.status, siaNumber: f.siaNumber, siaLicenceType: f.siaLicenceType, siaExpiry: f.siaExpiry, phone: U.clean(f.phone, 20), email: U.clean(f.email, 120) });
+          const rec = Object.assign(g, { name: f.name, status: f.status, siaNumber: f.siaNumber, siaLicenceType: f.siaLicenceType, siaExpiry: f.siaExpiry, siaNumber2: f.siaNumber2 || '', siaExpiry2: f.siaNumber2 ? f.siaExpiry2 : '', phone: U.clean(f.phone, 20), email: U.clean(f.email, 120) });
           if (f.siaChecked && !g.siaCheckedAt) rec.siaCheckedAt = new Date().toISOString();
           if (!f.siaChecked) rec.siaCheckedAt = null;
           if (isNew) { rec.id = SW.seq('guards', 'G'); rec.source = 'device'; }
-          if (f.username) {
-            try { await SW.auth.createUser(f.username, f.password, 'guard', { guardId: rec.id, displayName: rec.name }); }
-            catch (e) { return fieldErr(m, 'username', e.message); }
-          }
           await db.put('guards', rec);
           await db.audit(isNew ? 'Guard added' : 'Guard updated', { subject: rec.name, related: rec.id });
           return 'saved';
@@ -288,7 +288,6 @@
       if (db.where('shifts', (s) => s.guardId === g.id).length) { U.toast('This guard has shifts on record. Set their status to Inactive instead.', 'error', 5000); return; }
       if (!(await U.confirm('Delete guard?', 'Delete ' + g.name + '? This cannot be undone.', 'Delete', true))) return;
       await db.remove('guards', g.id);
-      const u = db.all('users').find((x) => x.guardId === g.id); if (u) await db.remove('users', u.id);
       await db.audit('Guard deleted', { subject: g.name });
     }
     if (res) { U.toast(res === 'delete' ? 'Guard deleted' : 'Guard saved', 'ok'); M.render(); }
@@ -328,6 +327,7 @@
         '<label class="fld"><span>Latitude</span><input name="lat" inputmode="decimal" value="' + esc(s.lat != null ? s.lat : '') + '"></label>' +
         '<label class="fld"><span>Longitude</span><input name="lng" inputmode="decimal" value="' + esc(s.lng != null ? s.lng : '') + '"></label>' +
         '<div class="span2"><button type="button" class="btn btn-sm btn-secondary" id="use-loc">Use my current location</button> <span class="muted" id="loc-msg"></span></div>' +
+        '<label class="fld chk span2"><input type="checkbox" name="mediaAllowed"' + (s.mediaAllowed === false ? '' : ' checked') + '><span>Guards may attach photos, video and voice notes to incident reports (turn off if the client contract forbids recordings on site)</span></label>' +
         '<label class="fld span2"><span>Emergency contacts (one per line)</span><textarea name="emergencyContacts" rows="4" maxlength="1000">' + esc(s.emergencyContacts || '') + '</textarea></label>' +
         '<label class="fld span2"><span>Site instructions (one per line — guards must acknowledge changes)</span><textarea name="instructions" rows="7" maxlength="5000">' + esc(ins ? ins.text : '') + '</textarea></label>' +
         '</div>',
@@ -345,7 +345,7 @@
           if (U.clean(f.name).length < 2) return fieldErr(m, 'name', 'Enter a site name.');
           const lat = f.lat === '' ? null : Number(f.lat), lng = f.lng === '' ? null : Number(f.lng);
           if ((lat === null) !== (lng === null) || (lat !== null && (isNaN(lat) || lat < -90 || lat > 90 || isNaN(lng) || lng < -180 || lng > 180))) return fieldErr(m, 'lat', 'Enter both latitude and longitude as decimal numbers, or leave both empty.');
-          Object.assign(s, { name: U.clean(f.name, 100), client: U.clean(f.client, 100), address: U.clean(f.address, 200), contactName: U.clean(f.contactName, 80), contactPhone: U.clean(f.contactPhone, 20), emergencyContacts: U.clean(f.emergencyContacts, 1000), lat, lng });
+          Object.assign(s, { name: U.clean(f.name, 100), client: U.clean(f.client, 100), address: U.clean(f.address, 200), contactName: U.clean(f.contactName, 80), contactPhone: U.clean(f.contactPhone, 20), emergencyContacts: U.clean(f.emergencyContacts, 1000), lat, lng, mediaAllowed: !!f.mediaAllowed });
           if (isNew) { s.id = SW.seq('sites', 'S'); s.source = 'device'; }
           await db.put('sites', s);
           const text = U.clean(f.instructions, 5000);
@@ -411,7 +411,7 @@
       if (!(wf >= 10 && wf <= 240)) return U.toast('Welfare frequency must be 10–240 minutes.', 'error');
       const st = U.combine(f.date, f.start);
       let en = U.combine(f.date, f.end);
-      if (en <= st) en = U.addDays(en, 1);
+      if (en <= st) en = U.combine(U.ymdAdd(f.date, 1), f.end);
       if (en - st > 16 * 3600000) return U.toast('Shifts longer than 16 hours are not allowed.', 'error');
       const g = db.get('guards', f.guardId);
       const lic = U.licenceStatus(g.siaExpiry, db.settings().licenceWarnDays);
@@ -806,17 +806,22 @@
       '<label class="fld"><span>Default patrol frequency (minutes)</span><input type="number" name="patrolFrequency" min="15" max="720" value="' + s.patrolFrequency + '"></label>' +
       '<label class="fld"><span>Checkpoint GPS tolerance (metres)</span><input type="number" name="gpsRadius" min="10" max="1000" value="' + s.gpsRadius + '"></label>' +
       '<label class="fld"><span>Licence "expiring soon" warning (days)</span><input type="number" name="licenceWarnDays" min="7" max="180" value="' + s.licenceWarnDays + '"></label>' +
-      '<label class="fld chk span2"><input type="checkbox" name="demoMode"' + (s.demoMode ? ' checked' : '') + '><span>Demo mode — shows the demo banner and the "simulate scan" button in the guard app</span></label>' +
+      '<label class="fld chk span2"><input type="checkbox" name="demoMode"' + (s.demoMode ? ' checked' : '') + '><span>Training mode — shows a banner and a "simulate scan" button in the guard app (turn off for real shifts)</span></label>' +
       '<div class="span2"><button class="btn btn-primary">Save settings</button></div></form>') +
       card('Data on this device',
         '<dl class="dl-grid"><dt>Storage</dt><dd>' + (db.mode === 'indexeddb' ? 'IndexedDB (records and media)' : 'localStorage fallback — photos, video and audio cannot be saved') + '</dd>' +
         '<dt>Sync</dt><dd>' + esc(SW.syncAdapter.name) + ' — ' + pend + ' record(s) waiting from offline use</dd>' +
         '<dt>Records</dt><dd>' + ['shifts', 'patrols', 'checkpointScans', 'incidents', 'welfareChecks', 'auditLogs'].map((k) => db.all(k).length + ' ' + k).join(', ') + '</dd></dl>' +
-        '<div class="btn-row"><button class="btn btn-secondary" id="bk-exp">Download data backup (JSON)</button><label class="btn btn-secondary file-btn">Import data file<input type="file" accept="application/json,.json" id="bk-imp" hidden></label></div>' +
+        '<div class="btn-row"><button class="btn btn-secondary" id="bk-exp">Download data backup (JSON)</button><label class="btn btn-secondary file-btn">Import data file<input type="file" accept="application/json,.json" id="bk-imp" hidden></label><button class="btn btn-danger-ghost" id="dm-wipe">Erase all data on this device</button></div>' +
         '<p class="muted">To move a guard\u2019s records to this computer: on the guard phone open <i>More › Send my data to a manager</i>, send the file to yourself, then import it here. Imported records are merged; existing records with the same ID are updated.</p>') +
-      card('Demo data',
-        '<p>Reset replaces <b>all</b> data on this device with the Cardiff Business Centre sample: guard John Smith, 6 checkpoints, three past night shifts with patrols, welfare checks and incidents, and a shift ready to start now.</p>' +
-        '<div class="btn-row"><button class="btn btn-danger" id="dm-reset">Reset demo data</button><button class="btn btn-danger-ghost" id="dm-wipe">Erase all data</button></div>') +
+      (SW.remote.enabled
+        ? card('Logins', '<div id="login-mgr"><p class="muted">Loading logins…</p></div>') +
+          card('Server sync', '<dl class="dl-grid"><dt>Server</dt><dd>Supabase — London (UK)</dd><dt>Last sync</dt><dd>' + (SW.remote.lastSync ? U.fmtDateTime(SW.remote.lastSync) + ' (' + U.minsLabel(Date.now() - SW.remote.lastSync) + ')' : 'Not yet') + '</dd><dt>Waiting to upload</dt><dd>' + db.pending().length + ' change(s)</dd>' + (SW.remote.lastError ? '<dt>Last problem</dt><dd class="red-text">' + esc(SW.remote.lastError) + '</dd>' : '') + '</dl><div class="btn-row"><button class="btn btn-primary" id="sync-now">Sync now</button></div><p class="muted">Every device syncs automatically about every 20 seconds while it is online. Changes made offline upload when the signal returns.</p>')
+        : card('Logins', '<div id="login-mgr"></div>') +
+      card('Publish setup to all devices',
+        '<p>Phones and computers each keep their own copy of the data. To send the site, guards, rota, checkpoints and logins from <b>this computer</b> to every device, download <b>config.js</b> and upload it to GitHub, replacing the old file. Every device updates the next time SecureWatch is opened online.</p>' +
+        '<div class="btn-row"><button class="btn btn-primary" id="pub-cfg">Download config.js</button></div>' +
+        '<p class="muted">Current setup version: ' + esc((window.SW_CONFIG || {}).version || '—') + '. Shift progress, patrols, scans and incidents are never overwritten.</p>')) +
       card('Privacy notice', SW.app.privacyHtml());
     U.$('#st-form', v).onsubmit = async (e) => {
       e.preventDefault();
@@ -830,12 +835,157 @@
     };
     U.$('#bk-exp', v).onclick = () => SW.app.exportBackup(false);
     U.$('#bk-imp', v).onchange = (e) => SW.app.importBackup(e.target.files[0]);
-    U.$('#dm-reset', v).onclick = () => SW.app.resetDemo();
+    if (SW.remote.enabled) {
+      renderLoginsRemote(U.$('#login-mgr', v));
+      U.$('#sync-now', v).onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Syncing…'; await SW.app.syncNow(); U.toast(SW.remote.lastError ? 'Sync problem: ' + SW.remote.lastError : 'Synced with the server', SW.remote.lastError ? 'error' : 'ok'); M.render(); };
+    } else {
+      U.$('#pub-cfg', v).onclick = publishConfig;
+      renderLogins(U.$('#login-mgr', v));
+    }
     U.$('#dm-wipe', v).onclick = async () => {
-      if (!(await U.confirm('Erase all data?', 'This deletes every record and file on this device (including demo data) and signs you out. Use this before setting up your real sites and guards. The manager/guard/client demo logins remain so you can sign back in.', 'Erase everything', true))) return;
-      await db.clearAll(); await db.saveSettings({ demoMode: false }); await SW.auth.ensureDemoUsers(); await SW.auth.logout(); location.hash = '#/login'; location.reload();
+      if (!(await U.confirm('Erase all data?', 'This deletes every record and file on this device and signs you out. The site, guards and rota from config.js are reloaded.', 'Erase everything', true))) return;
+      if (SW.remote.enabled) { await db.clearAll(); SW.remote.resetCursor(); await SW.remote.pull(); U.toast('Local copy erased and downloaded again from the server', 'ok'); M.render(); return; }
+      await SW.auth.logout(); await db.clearAll(); await SW.setup.apply(true); location.hash = '#/login'; location.reload();
     };
   };
+
+  /* ---- Logins (edited here, published in config.js) ---- */
+  function draftUsers() {
+    const d = db.settings().usersDraft;
+    return Array.isArray(d) ? d : SW.auth.users().map((u) => Object.assign({}, u));
+  }
+  async function saveDraft(list) { await db.saveSettings({ usersDraft: list }); }
+  function genPassword() {
+    const w = ['Amber', 'Birch', 'Cedar', 'Delta', 'Ember', 'Falcon', 'Granite', 'Harbour', 'Indigo', 'Juniper', 'Kestrel', 'Lantern', 'Meadow', 'Nimbus', 'Orchid', 'Pebble', 'Quartz', 'Raven', 'Summit', 'Thistle', 'Willow', 'Zephyr'];
+    const r = crypto.getRandomValues(new Uint32Array(3));
+    return w[r[0] % w.length] + '-' + w[r[1] % w.length] + '-' + (10 + (r[2] % 90));
+  }
+  function renderLogins(host) {
+    const list = draftUsers();
+    const changed = JSON.stringify(list) !== JSON.stringify(SW.auth.users());
+    host.innerHTML = (changed ? '<div class="alert alert-amber"><div><b>Login changes not published yet.</b> Download config.js below and upload it to GitHub to apply them on every device.</div></div>' : '') +
+      table([
+        { label: 'Username', html: (u) => '<b>' + esc(u.username) + '</b>' },
+        { label: 'Name', html: (u) => esc(u.displayName || '') },
+        { label: 'Role', html: (u) => esc(u.role) + (u.guardId ? '<small class="blk">' + esc(Q.guardName(u.guardId)) + '</small>' : '') },
+        { label: '', html: (u) => '<button class="btn btn-sm btn-secondary" data-pw="' + esc(u.username) + '">New password</button> <button class="btn btn-sm btn-danger-ghost" data-rm="' + esc(u.username) + '">Remove</button>' },
+      ], list, 'No logins.') +
+      '<div class="btn-row"><button class="btn btn-secondary" id="lg-add">Add login</button></div>' +
+      '<p class="muted">Passwords are stored only as secure hashes, so they cannot be shown again. Note them down when you create them.</p>';
+    U.$('#lg-add', host).onclick = () => loginForm(host);
+    host.querySelectorAll('[data-pw]').forEach((b) => (b.onclick = async () => {
+      const l = draftUsers(); const u = l.find((x) => x.username === b.dataset.pw);
+      const pw = genPassword();
+      Object.assign(u, await hashFor(pw));
+      await saveDraft(l);
+      await U.modal({ title: 'New password for ' + u.username, body: '<p>Give this password to ' + esc(u.displayName) + ':</p><p class="pw-show">' + esc(pw) + '</p><p class="muted">It starts working after you publish config.js.</p>', actions: [{ label: 'Done', cls: 'btn-primary' }] });
+      renderLogins(host);
+    }));
+    host.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
+      if (b.dataset.rm === SW.session.username) return U.toast('You cannot remove the login you are using.', 'error');
+      if (!(await U.confirm('Remove login?', 'Remove ' + b.dataset.rm + '? It stops working after you publish config.js.', 'Remove', true))) return;
+      await saveDraft(draftUsers().filter((x) => x.username !== b.dataset.rm));
+      renderLogins(host);
+    }));
+  }
+  async function renderLoginsRemote(host) {
+    let list;
+    try { list = await SW.remote.listLogins(); }
+    catch (e) { host.innerHTML = '<p class="red-text">Could not load logins: ' + esc(e.message) + (navigator.onLine ? '' : ' (you are offline)') + '</p>'; return; }
+    host.innerHTML = table([
+        { label: 'Username', html: (u) => '<b>' + esc(u.username) + '</b>' },
+        { label: 'Name', html: (u) => esc(u.display_name || '') },
+        { label: 'Role', html: (u) => esc(u.role) + (u.guard_id ? '<small class="blk">' + esc(Q.guardName(u.guard_id)) + '</small>' : '') },
+        { label: 'Last sign-in', html: (u) => (u.last_sign_in_at ? U.fmtDateTime(u.last_sign_in_at) : '—') },
+        { label: '', html: (u) => '<button class="btn btn-sm btn-secondary" data-pw="' + esc(u.username) + '">New password</button> ' + (u.username === SW.session.username ? '' : '<button class="btn btn-sm btn-danger-ghost" data-rm="' + esc(u.username) + '">Remove</button>') },
+      ], list || [], 'No logins.') +
+      '<div class="btn-row"><button class="btn btn-secondary" id="lg-add">Add login</button></div>' +
+      '<p class="muted">Changes take effect straight away on every device. Removing a login or changing its password signs that person out.</p>';
+    U.$('#lg-add', host).onclick = async () => {
+      const pw0 = genPassword();
+      const res = await U.modal({
+        title: 'Add login',
+        body: '<div class="form-grid"><label class="fld"><span>Role</span><select name="role"><option value="guard">Guard</option><option value="manager">Manager</option><option value="client">Client (read only)</option></select></label>' +
+          '<label class="fld"><span>Guard (for guard logins)</span><select name="guardId">' + opt('', '—') + db.all('guards').map((g) => opt(g.id, g.name)).join('') + '</select></label>' +
+          '<label class="fld"><span>Username</span><input name="username" maxlength="40" autocomplete="off" autocapitalize="none"></label>' +
+          '<label class="fld"><span>Display name</span><input name="displayName" maxlength="60"></label>' +
+          '<label class="fld span2"><span>Password (at least 10 characters)</span><input name="password" maxlength="100" value="' + esc(pw0) + '" autocomplete="off"></label></div>',
+        actions: [{ label: 'Cancel', value: null }, { label: 'Add login', cls: 'btn-primary', onClick: async (m) => {
+          const f = formData(m);
+          const username = U.clean(f.username, 40).toLowerCase();
+          if (!/^[a-z0-9._-]{3,40}$/.test(username)) return fieldErr(m, 'username', 'Use 3–40 letters, numbers, dots or dashes.');
+          if (f.role === 'guard' && !f.guardId) return fieldErr(m, 'guardId', 'Choose which guard this login is for.');
+          if ((f.password || '').length < 10) return fieldErr(m, 'password', 'Use at least 10 characters.');
+          const g = f.guardId ? db.get('guards', f.guardId) : null;
+          try {
+            await SW.remote.createLogin({ p_username: username, p_password: f.password, p_role: f.role, p_display: U.clean(f.displayName, 60) || (g ? g.name : username), p_guard: f.role === 'guard' ? f.guardId : null, p_sites: f.role === 'manager' ? [] : db.all('sites').map((x) => x.id) });
+          } catch (e) { return fieldErr(m, 'username', e.message); }
+          return { username, pw: f.password };
+        } }],
+      });
+      if (res) { await db.audit('Login created', { subject: res.username }); await U.modal({ title: 'Login added', body: '<p>Username: <b>' + esc(res.username) + '</b></p><p class="pw-show">' + esc(res.pw) + '</p><p class="muted">Note this password now — it cannot be shown again.</p>', actions: [{ label: 'Done', cls: 'btn-primary' }] }); }
+      renderLoginsRemote(host);
+    };
+    host.querySelectorAll('[data-pw]').forEach((b) => (b.onclick = async () => {
+      if (!(await U.confirm('New password?', 'Create a new password for ' + b.dataset.pw + '? The old one stops working immediately.', 'Create password'))) return;
+      const pw = genPassword();
+      try { await SW.remote.setPassword(b.dataset.pw, pw); } catch (e) { return U.toast(e.message, 'error'); }
+      await db.audit('Password reset', { subject: b.dataset.pw });
+      await U.modal({ title: 'New password for ' + b.dataset.pw, body: '<p class="pw-show">' + esc(pw) + '</p><p class="muted">Give this to the user. It works straight away.</p>', actions: [{ label: 'Done', cls: 'btn-primary' }] });
+    }));
+    host.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
+      if (!(await U.confirm('Remove login?', 'Remove ' + b.dataset.rm + '? They will be signed out and cannot sign in again.', 'Remove', true))) return;
+      try { await SW.remote.deleteLogin(b.dataset.rm); } catch (e) { return U.toast(e.message, 'error'); }
+      await db.audit('Login removed', { subject: b.dataset.rm });
+      renderLoginsRemote(host);
+    }));
+  }
+  async function hashFor(pw) { const salt = U.token(16); return { salt, iterations: 150000, hash: await U.pbkdf2(pw, salt, 150000) }; }
+  async function loginForm(host) {
+    const pw0 = genPassword();
+    const res = await U.modal({
+      title: 'Add login',
+      body: '<div class="form-grid"><label class="fld"><span>Role</span><select name="role"><option value="guard">Guard</option><option value="manager">Manager</option><option value="client">Client (read only)</option></select></label>' +
+        '<label class="fld"><span>Guard (for guard logins)</span><select name="guardId">' + opt('', '—') + db.all('guards').map((g) => opt(g.id, g.name)).join('') + '</select></label>' +
+        '<label class="fld"><span>Username</span><input name="username" maxlength="40" autocomplete="off" autocapitalize="none"></label>' +
+        '<label class="fld"><span>Display name</span><input name="displayName" maxlength="60"></label>' +
+        '<label class="fld span2"><span>Password (at least 10 characters)</span><input name="password" maxlength="100" value="' + esc(pw0) + '" autocomplete="off"></label></div>',
+      actions: [{ label: 'Cancel', value: null }, { label: 'Add login', cls: 'btn-primary', onClick: async (m) => {
+        const f = formData(m);
+        const username = U.clean(f.username, 40).toLowerCase();
+        if (!/^[a-z0-9._-]{3,40}$/.test(username)) return fieldErr(m, 'username', 'Use 3–40 letters, numbers, dots or dashes.');
+        if (draftUsers().some((x) => x.username === username)) return fieldErr(m, 'username', 'That username already exists.');
+        if (f.role === 'guard' && !f.guardId) return fieldErr(m, 'guardId', 'Choose which guard this login is for.');
+        if ((f.password || '').length < 10) return fieldErr(m, 'password', 'Use at least 10 characters.');
+        const g = f.guardId ? db.get('guards', f.guardId) : null;
+        const u = Object.assign({ username, role: f.role, displayName: U.clean(f.displayName, 60) || (g ? g.name : username), guardId: f.role === 'guard' ? f.guardId : null, siteIds: f.role === 'client' ? db.all('sites').map((x) => x.id) : [] }, await hashFor(f.password));
+        const l = draftUsers(); l.push(u); await saveDraft(l);
+        return { u, pw: f.password };
+      } }],
+    });
+    if (res) await U.modal({ title: 'Login added', body: '<p>Username: <b>' + esc(res.u.username) + '</b></p><p class="pw-show">' + esc(res.pw) + '</p><p class="muted">Note this password now. It starts working after you publish config.js.</p>', actions: [{ label: 'Done', cls: 'btn-primary' }] });
+    renderLogins(host);
+  }
+  function publishConfig() {
+    const strip = (r) => { const o = Object.assign({}, r); delete o.createdAt; delete o.updatedAt; delete o.source; return o; };
+    const shiftKeys = ['id', 'guardId', 'siteId', 'date', 'start', 'end', 'startAt', 'endAt', 'patrolFreq', 'welfareFreq'];
+    const st = db.settings();
+    const C = {
+      version: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+      settings: { companyName: st.companyName, welfareInterval: st.welfareInterval, welfareGrace: st.welfareGrace, patrolFrequency: st.patrolFrequency, gpsRadius: st.gpsRadius, licenceWarnDays: st.licenceWarnDays },
+      users: draftUsers(),
+      sites: db.all('sites').map(strip),
+      siteInstructions: db.all('siteInstructions').map(strip),
+      guards: db.all('guards').map((g) => { const o = strip(g); delete o.siaCheckedAt; return o; }),
+      patrolRoutes: db.all('patrolRoutes').map(strip),
+      checkpoints: db.all('checkpoints').map(strip),
+      shifts: db.all('shifts').map((x) => { const o = {}; shiftKeys.forEach((k) => (o[k] = x[k])); return o; }).sort((a, b) => (a.startAt > b.startAt ? 1 : -1)),
+    };
+    const js = '/* SecureWatch setup — generated ' + C.version + ' by ' + SW.session.displayName + '.\n * Upload this file to GitHub (replacing config.js) to update every device.\n * Passwords are stored as PBKDF2 hashes only. */\nwindow.SW_CONFIG = ' + JSON.stringify(C, null, 1) + ';\n';
+    U.download('config.js', js, 'text/javascript');
+    db.audit('Setup published', { subject: 'config ' + C.version });
+    U.toast('config.js downloaded — upload it to GitHub to update all devices', 'ok', 6000);
+  }
 
   /* ---- Audit ---- */
   VIEWS.audit = function (v) {
@@ -942,7 +1092,7 @@
         '</div>' +
         '<h2>Incident summary</h2>' + (incidents.length ? '<table class="rp-tbl"><thead><tr><th>Incident</th><th>Time</th><th>Type</th><th>Severity</th><th>Status</th><th>Summary</th></tr></thead><tbody>' + incidents.map((i) => '<tr><td>' + esc(i.id) + '</td><td>' + U.fmtTime(i.at) + '</td><td>' + esc(i.type) + '</td><td>' + esc(i.severity) + '</td><td>' + esc(i.status) + '</td><td>' + esc(i.description.slice(0, 160)) + (i.description.length > 160 ? '…' : '') + '</td></tr>').join('') + '</tbody></table>' : '<p>No incidents reported.</p>') +
         '<h2>Patrol log</h2>' + (patrols.length ? '<table class="rp-tbl"><thead><tr><th>Patrol</th><th>Route</th><th>Start</th><th>End</th><th>Checkpoints</th><th>Status</th></tr></thead><tbody>' + patrols.map((p) => '<tr><td>' + esc(p.id) + '</td><td>' + esc(Q.routeName(p.routeId)) + '</td><td>' + U.fmtTime(p.startAt) + '</td><td>' + (p.endAt ? U.fmtTime(p.endAt) : '—') + '</td><td>' + (p.endAt ? p.verified + '/' + p.total : 'In progress') + '</td><td>' + esc(p.status) + '</td></tr>' + (p.explanation ? '<tr class="rp-sub"><td></td><td colspan="5">Missed ' + esc(p.missed.map((m) => m.name).join(', ')) + ' — ' + esc(p.explanation) + '</td></tr>' : '')).join('') + '</tbody></table>' : '<p>No patrols recorded.</p>') +
-        '<footer class="rp-foot">Generated by SecureWatch from records stored on the device that produced this report. GPS positions come from the guard\u2019s phone and depend on its accuracy.</footer>' +
+        '<footer class="rp-foot">Generated by SecureWatch (by Syed Owais) from records stored on the device that produced this report. GPS positions come from the guard\u2019s phone and depend on its accuracy.</footer>' +
         '</article>';
     },
   };

@@ -538,3 +538,9 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
   .rp-tbl tr { break-inside: avoid; }
   a { color: #000; text-decoration: none; }
 }
+
+/* Credit + misc */
+.credit { margin: 14px 0 0; font-size: 11px; letter-spacing: .02em; color: #8A97B4; text-align: center; }
+.credit-side { margin: 0; padding: 0 18px 12px; text-align: left; color: #6F86B8; }
+.g-app .credit { color: #6F86B8; }
+.pw-show { font-family: var(--font-c); font-size: 30px; font-weight: 700; letter-spacing: .03em; background: var(--paper); border: 1px dashed var(--line); border-radius: var(--r-sm); padding: 10px 14px; text-align: center; user-select: all; }
