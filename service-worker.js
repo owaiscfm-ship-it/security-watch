@@ -1,6 +1,6 @@
 /* SecureWatch service worker — caches the app shell so the guard app opens and works offline.
  * Data is stored in IndexedDB by the page, not here. Bump CACHE when you change any file. */
-const CACHE = 'securewatch-v2.1.0';
+const CACHE = 'securewatch-v2.2.0';
 const SHELL = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const SHELL = [
   './guard.js',
   './manager.js',
   './reports.js',
+  './dashboard.js',
   './qrcode.js',
   './jsQR.js',
   './icon-192.png',

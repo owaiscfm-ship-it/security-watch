@@ -65,7 +65,11 @@
     U.$$('#m-side nav a').forEach((a) => (a.dataset.v === M.view ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
     const y = window.scrollY;
     if (!quiet) for (const s of Q.onDutyShifts()) await OPS.evaluateWelfare(s);
-    VIEWS[M.view](v);
+    try { VIEWS[M.view](v); }
+    catch (e) {
+      console.error(e);
+      v.innerHTML = '<div class="alert alert-amber"><div><b>This page could not be shown.</b> ' + esc(e.message) + '. Press Ctrl + Shift + R to load the latest version of the app. If it keeps happening, check every file was uploaded (including reports.js and dashboard.js).</div></div>';
+    }
     if (quiet) window.scrollTo(0, y);
   };
 
@@ -177,6 +181,11 @@
 
   /* ---------------- Views ---------------- */
   const VIEWS = {};
+  M.VIEWS = VIEWS;
+  M.alertsHtml = (a, b) => alertsHtml(a, b);
+  M.bindSos = (v) => bindSos(v);
+  M.liveStatusBlock = (st) => liveStatusBlock(st);
+  M.bindNav = (v) => bindNav(v);
 
   VIEWS.dashboard = function (v) {
     const st = M.status();
@@ -257,7 +266,7 @@
     const rows = db.all('guards').slice().sort((a, b) => (a.name > b.name ? 1 : -1));
     v.innerHTML = '<div class="toolbar"><p class="muted">Licence status is calculated from the expiry date entered. Always confirm licences on the <a href="https://services.sia.homeoffice.gov.uk/rolh" target="_blank" rel="noopener">SIA register of licence holders</a>.</p><button class="btn btn-primary" id="g-add">Add guard</button></div>' +
       card('Guards (' + rows.length + ')', table([
-        { label: 'Name', html: (g) => '<span class="who">' + avatar(g, 34) + '<b>' + esc(g.name) + '</b></span>' },
+        { label: 'Name', html: (g) => '<button class="who who-btn" data-prof="' + esc(g.id) + '" title="View profile and performance">' + avatar(g, 34) + '<b>' + esc(g.name) + '</b></button>' },
         { label: 'SIA licence', html: (g) => '<span class="mono-ish">•••• ' + esc(String(g.siaNumber || '').slice(-4)) + '</span><small class="blk">' + esc(g.siaLicenceType || '') + '</small>' + (g.siaNumber2 ? '<span class="mono-ish blk">•••• ' + esc(String(g.siaNumber2).slice(-4)) + '</span><small class="blk">' + esc(g.siaLicenceType2 || 'Second licence') + '</small>' : '') },
         { label: 'Expiry', html: (g) => U.fmtDate(g.siaExpiry) + (g.siaNumber2 ? '<span class="blk">' + U.fmtDate(g.siaExpiry2) + '</span>' : '') },
         { label: 'Licence status', html: (g) => { const l = U.licenceStatus(g.siaExpiry, warn); let h = U.badge(l.icon + ' ' + l.label, l.cls); if (g.siaNumber2) { const l2 = U.licenceStatus(g.siaExpiry2, warn); h += '<span class="blk">' + U.badge(l2.icon + ' ' + l2.label, l2.cls) + '</span>'; } return h; } },
@@ -269,6 +278,7 @@
       ], rows, 'No guards yet. Add your first guard.'));
     U.$('#g-add', v).onclick = () => guardForm();
     v.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => guardForm(db.get('guards', b.dataset.edit))));
+    v.querySelectorAll('[data-prof]').forEach((b) => (b.onclick = () => M.guardProfile && M.guardProfile(b.dataset.prof)));
   };
 
   function resizePhoto(file, size) {
@@ -724,7 +734,7 @@
       { label: 'Type', html: (r) => esc(r.type) },
       { label: 'Severity', html: (r) => U.badge(r.severity, U.statusCls(r.severity)) },
       { label: 'Description', html: (r) => '<span class="clip">' + esc(r.description) + '</span>' },
-      { label: 'Evidence', html: (r) => (r.media.length ? r.media.length + ' file(s)' : '—') },
+      { label: 'Evidence', html: (r) => ((r.media || []).length ? r.media.length + ' file(s)' : '—') },
       { label: 'Status', html: (r) => U.badge(r.status, U.statusCls(r.status)) },
       { label: 'Data', html: src },
     ], rows, 'No incidents match.');
@@ -748,12 +758,12 @@
         '<dt>Emergency services</dt><dd>' + esc(inc.emergency) + '</dd>' +
         '<dt>Data</dt><dd>' + src(inc) + '</dd></dl>' +
         '<h3>Description</h3><p class="pre">' + esc(inc.description) + '</p>' +
-        '<h3>Evidence</h3><div id="inc-media" class="inc-media">' + (inc.media.length ? '<p class="muted">Loading files…</p>' : '<p class="muted">No photos, video or audio attached.</p>') + '</div>' +
+        '<h3>Evidence</h3><div id="inc-media" class="inc-media">' + ((inc.media || []).length ? '<p class="muted">Loading files…</p>' : '<p class="muted">No photos, video or audio attached.</p>') + '</div>' +
         '<h3>Status history</h3><ul class="feed">' + (inc.statusHistory || []).map((h) => '<li><time>' + U.fmtDateTime(h.at) + '</time><div><b>' + esc(h.status) + '</b> by ' + esc(h.by) + (h.note ? '<small>' + esc(h.note) + '</small>' : '') + '</div></li>').join('') + '</ul>' +
         (canEdit ? '<div class="form-grid"><label class="fld"><span>Change status</span><select name="status">' + ['Open', 'Under Review', 'Resolved'].map((s) => opt(s, s, inc.status)).join('') + '</select></label><label class="fld"><span>Note (optional)</span><input name="note" maxlength="500"></label></div>' : ''),
       onOpen: async (m) => {
         const host = m.querySelector('#inc-media');
-        if (!inc.media.length) return;
+        if (!(inc.media || []).length) return;
         let html = '';
         for (const md of inc.media) {
           const rec = await db.getMedia(md.id);
@@ -1199,7 +1209,7 @@
       { label: 'Severity', value: 'severity' }, { label: 'Description', value: 'description' }, { label: 'Location note', value: 'locationNote' },
       { label: 'Latitude', value: (i) => (i.gps && i.gps.ok ? i.gps.lat : '') }, { label: 'Longitude', value: (i) => (i.gps && i.gps.ok ? i.gps.lng : '') },
       { label: 'Witness', value: 'witness' }, { label: 'Police contacted', value: 'police' }, { label: 'Emergency services', value: 'emergency' },
-      { label: 'Evidence files', value: (i) => i.media.length }, { label: 'Status', value: 'status' }, { label: 'Data source', value: (i) => i.source || 'device' },
+      { label: 'Evidence files', value: (i) => (i.media || []).length }, { label: 'Status', value: 'status' }, { label: 'Data source', value: (i) => i.source || 'device' },
     ],
     attendance: [
       { label: 'Date', value: (a) => U.fmtDate(a.at) }, { label: 'Time', value: (a) => U.fmtTimeSec(a.at) }, { label: 'Event', value: 'type' },

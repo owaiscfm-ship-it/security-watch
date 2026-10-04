@@ -678,7 +678,7 @@
   function renderIncidentDone(v, inc) {
     if (!inc) { G.sub = null; renderIncident(v); return; }
     v.innerHTML = '<section class="g-result ok"><div class="ov-icon">' + ICON.incident + '</div><h1>Incident submitted</h1><p class="big">' + esc(inc.id) + '</p>' +
-      '<dl><dt>Type</dt><dd>' + esc(inc.type) + '</dd><dt>Severity</dt><dd>' + esc(inc.severity) + '</dd><dt>Time</dt><dd>' + U.fmtDateTime(inc.at) + '</dd><dt>Location</dt><dd>' + esc(U.gpsLabel(inc.gps)) + '</dd><dt>Evidence</dt><dd>' + inc.media.length + ' file(s)</dd></dl>' +
+      '<dl><dt>Type</dt><dd>' + esc(inc.type) + '</dd><dt>Severity</dt><dd>' + esc(inc.severity) + '</dd><dt>Time</dt><dd>' + U.fmtDateTime(inc.at) + '</dd><dt>Location</dt><dd>' + esc(U.gpsLabel(inc.gps)) + '</dd><dt>Evidence</dt><dd>' + (inc.media || []).length + ' file(s)</dd></dl>' +
       '<p class="ov-small">' + (SW.remote.enabled ? (navigator.onLine ? 'Saved and sent to the server.' : 'Saved on this phone. It uploads automatically when you have signal.') : 'Saved on this device. Managers see it on the dashboard opened on this device or after a data transfer.') + '</p></section>' +
       '<button class="g-btn g-btn-primary g-btn-xl" id="id-home">Back to home</button><button class="g-btn g-btn-ghost" id="id-new">Report another</button>';
     U.$('#id-home', v).onclick = () => G.go('home');
