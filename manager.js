@@ -31,15 +31,18 @@
       '<div class="m-app">' +
       '<aside class="m-side" id="m-side"><div class="m-brand"><span class="logo-mark" aria-hidden="true"></span><div><strong>SecureWatch</strong><small>Security Operations &amp; Patrol Management</small></div></div>' +
       '<nav aria-label="Management">' + NAV.map((n) => '<a href="#/manager/' + n[0] + '" data-v="' + n[0] + '"' + (n[0] === M.view ? ' aria-current="page"' : '') + '>' + ico(n[2]) + '<span>' + n[1] + '</span></a>').join('') + '</nav>' +
-      '<div class="m-side-foot"><span>' + esc(SW.session.displayName) + '</span><button class="link-btn" id="m-logout">Sign out</button></div><p class="credit credit-side">SecureWatch by Syed Owais</p></aside>' +
+      '<div class="m-side-foot"><span>' + esc(SW.session.displayName) + '</span><span class="side-links">' + (SW.remote.enabled ? '<button class="link-btn" id="m-pw">Change password</button> · ' : '') + '<button class="link-btn" id="m-logout">Sign out</button></span></div><p class="credit credit-side">SecureWatch by Syed Owais</p></aside>' +
       '<div class="m-main"><header class="m-top"><button class="icon-btn m-burger" id="m-burger" aria-label="Menu">☰</button><h1 id="m-title"></h1><div class="m-top-r">' +
       (db.settings().demoMode ? '<span class="badge badge-demo">Training mode</span>' : '') +
       '<span class="chip ' + (navigator.onLine ? 'chip-ok' : 'chip-bad') + '" id="m-net"><i></i>' + (navigator.onLine ? 'Online' : 'Offline') + '</span>' +
-      '<button class="btn btn-secondary btn-sm" id="m-refresh" title="Reload records saved on this device">Refresh</button></div></header>' +
+      (SW.remote.enabled ? '<button class="btn btn-sm ' + (('Notification' in window && Notification.permission === 'granted') ? 'btn-ghost' : 'btn-secondary') + '" id="m-bell" title="Pop-up alerts on this device">' + (('Notification' in window && Notification.permission === 'granted') ? '🔔 Alerts on' : '🔕 Turn on alerts') + '</button>' : '') +
+      '<button class="btn btn-secondary btn-sm" id="m-refresh" title="Fetch the latest data">Refresh</button></div></header>' +
       '<main class="m-content" id="m-view" tabindex="-1"></main></div></div>';
     U.$('#m-logout').onclick = () => SW.app.logout();
+    const pw = U.$('#m-pw'); if (pw) pw.onclick = () => SW.app.changePassword();
+    const bell = U.$('#m-bell'); if (bell) bell.onclick = async () => { await SW.app.enableAlerts(); M.mount(root, M.view); };
     U.$('#m-burger').onclick = () => U.$('#m-side').classList.toggle('open');
-    U.$('#m-refresh').onclick = async () => { await db.init(); M.render(); U.toast('Records reloaded from this device', 'ok'); };
+    U.$('#m-refresh').onclick = async () => { if (SW.remote.enabled && SW.app.syncNow) await SW.app.syncNow(); else await db.init(); M.render(); U.toast(SW.remote.enabled ? (SW.remote.lastError ? 'Sync problem: ' + SW.remote.lastError : 'Up to date') : 'Records reloaded from this device', 'ok'); };
     U.$$('#m-side nav a').forEach((a) => a.addEventListener('click', () => U.$('#m-side').classList.remove('open')));
     M.render();
     clearInterval(M.timer);
@@ -77,6 +80,15 @@
   M.table = table;
   const src = (r) => (r && r.source === 'demo' ? '<span class="src src-demo" title="Sample data created by demo mode">Demo</span>' : '<span class="src src-dev" title="Recorded by a browser/device">Device</span>');
   M.src = src;
+  function avatar(g, size) {
+    size = size || 36;
+    const name = (g && g.name) || '?';
+    const ini = name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+    return g && g.photo && /^data:image\//.test(g.photo)
+      ? '<img class="avatar" src="' + g.photo + '" alt="" width="' + size + '" height="' + size + '">'
+      : '<span class="avatar avatar-i" style="width:' + size + 'px;height:' + size + 'px;font-size:' + Math.round(size * 0.38) + 'px">' + esc(ini) + '</span>';
+  }
+  M.avatar = avatar;
   function card(title, body, extra) { return '<section class="panel"><div class="panel-head"><h2>' + esc(title) + '</h2>' + (extra || '') + '</div>' + body + '</section>'; }
   M.card = card;
   function opt(v, l, sel) { return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(l) + '</option>'; }
@@ -129,7 +141,7 @@
     const age = st.lastGps ? Date.now() - new Date(st.lastGps.at).getTime() : null;
     const row = (l, v) => '<div><dt>' + l + '</dt><dd>' + v + '</dd></div>';
     return '<dl class="live-dl">' +
-      row('Guard', esc(Q.guardName(s.guardId))) +
+      row('Guard', '<span class="who">' + avatar(Q.guard(s.guardId), 28) + esc(Q.guardName(s.guardId)) + '</span>') +
       row('Site', esc(Q.siteName(s.siteId))) +
       row('Status', '<span class="dot dot-green"></span> On duty since ' + U.fmtTime(s.actualStart)) +
       row('Shift', esc(s.start) + ' – ' + esc(s.end)) +
@@ -170,8 +182,27 @@
     const st = M.status();
     const recentInc = db.all('incidents').slice().sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 5);
     const audits = db.all('auditLogs').slice().sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 8);
+    const days = []; for (let i = 13; i >= 0; i--) days.push(U.ymdAdd(U.today(), -i));
+    const site = (db.all('sites')[0] || {}).id;
+    const trend = SW.reports.compute(null, days[0], days[13]).perDay;
+    const W = 560, H = 120, bw = 26;
+    const chart = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Patrol completion, last 14 days">' + trend.map((d, i) => {
+      const v = d.sched ? Math.min(1, d.patrols / d.sched) : 0, h = Math.round(v * (H - 34)), x = 8 + i * ((W - 16) / 14);
+      const col = !d.sched ? '#E9EDF4' : v >= 0.95 ? '#188A52' : v >= 0.7 ? '#E0A100' : '#C8293A';
+      return '<rect x="' + x + '" y="' + (H - 20 - h) + '" width="' + bw + '" height="' + Math.max(2, h) + '" rx="3" fill="' + col + '"><title>' + d.date + ': ' + d.patrols + '/' + d.sched + ' patrols</title></rect><text x="' + (x + bw / 2) + '" y="' + (H - 6) + '" font-size="10" text-anchor="middle" fill="#4A5878">' + new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric' }) + '</text>';
+    }).join('') + '</svg>';
+    const warn = db.settings().licenceWarnDays;
+    const team = db.all('guards').filter((g) => g.status === 'Active').map((g) => {
+      const on = st.onDuty.find((x) => x.guardId === g.id);
+      const next = on ? null : db.where('shifts', (x) => x.guardId === g.id && x.status === 'Scheduled' && new Date(x.endAt) > new Date()).sort((a, b) => (a.startAt > b.startAt ? 1 : -1))[0];
+      const l = U.licenceStatus(g.siaExpiry, warn);
+      return '<div class="team-row">' + avatar(g, 40) + '<div><b>' + esc(g.name) + '</b><small>' + (on ? '<span class="dot dot-green"></span> On duty since ' + U.fmtTime(on.actualStart) : next ? 'Next: ' + U.fmtShortDate(next.startAt) + ' ' + esc(next.start) : 'No upcoming shift') + '</small></div>' + U.badge(l.icon + ' SIA', l.cls) + '</div>';
+    }).join('');
     v.innerHTML = alertsHtml(null, true) + kpis(st) +
       '<div class="grid-2">' +
+      card('Patrol completion — last 14 days', chart + '<p class="rp-legend"><i style="background:#188A52"></i>95%+ <i style="background:#E0A100"></i>70–94% <i style="background:#C8293A"></i>under 70%</p>', '<button class="btn btn-sm btn-secondary" data-nav="reports">Reports</button>') +
+      card('Team', team || '<div class="empty"><p>No active guards.</p></div>', '<button class="btn btn-sm btn-secondary" data-nav="guards">Guards</button>') +
+      '</div><div class="grid-2">' +
       card('Live guard status', liveStatusBlock(st), '<button class="btn btn-sm btn-secondary" data-nav="live">Open live operations</button>') +
       card('Recent activity', audits.length ? '<ul class="feed">' + audits.map((a) => '<li><time>' + U.fmtDateTime(a.at) + '</time><div><b>' + esc(a.action) + '</b> ' + esc(a.subject) + '<small>' + esc(a.user) + (a.related ? ' — ' + esc(a.related) : '') + '</small></div></li>').join('') + '</ul>' : '<div class="empty"><p>No activity yet.</p></div>', '<button class="btn btn-sm btn-secondary" data-nav="audit">Audit log</button>') +
       '</div>' +
@@ -226,7 +257,7 @@
     const rows = db.all('guards').slice().sort((a, b) => (a.name > b.name ? 1 : -1));
     v.innerHTML = '<div class="toolbar"><p class="muted">Licence status is calculated from the expiry date entered. Always confirm licences on the <a href="https://services.sia.homeoffice.gov.uk/rolh" target="_blank" rel="noopener">SIA register of licence holders</a>.</p><button class="btn btn-primary" id="g-add">Add guard</button></div>' +
       card('Guards (' + rows.length + ')', table([
-        { label: 'Name', html: (g) => '<b>' + esc(g.name) + '</b>' },
+        { label: 'Name', html: (g) => '<span class="who">' + avatar(g, 34) + '<b>' + esc(g.name) + '</b></span>' },
         { label: 'SIA licence', html: (g) => '<span class="mono-ish">•••• ' + esc(String(g.siaNumber || '').slice(-4)) + '</span><small class="blk">' + esc(g.siaLicenceType || '') + '</small>' + (g.siaNumber2 ? '<span class="mono-ish blk">•••• ' + esc(String(g.siaNumber2).slice(-4)) + '</span><small class="blk">' + esc(g.siaLicenceType2 || 'Second licence') + '</small>' : '') },
         { label: 'Expiry', html: (g) => U.fmtDate(g.siaExpiry) + (g.siaNumber2 ? '<span class="blk">' + U.fmtDate(g.siaExpiry2) + '</span>' : '') },
         { label: 'Licence status', html: (g) => { const l = U.licenceStatus(g.siaExpiry, warn); let h = U.badge(l.icon + ' ' + l.label, l.cls); if (g.siaNumber2) { const l2 = U.licenceStatus(g.siaExpiry2, warn); h += '<span class="blk">' + U.badge(l2.icon + ' ' + l2.label, l2.cls) + '</span>'; } return h; } },
@@ -240,6 +271,20 @@
     v.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => guardForm(db.get('guards', b.dataset.edit))));
   };
 
+  function resizePhoto(file, size) {
+    return new Promise((resolve, reject) => {
+      const img = new Image(); const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const c = document.createElement('canvas'); c.width = size; c.height = size;
+        const s2 = Math.min(img.width, img.height), sx = (img.width - s2) / 2, sy = Math.max(0, (img.height - s2) / 2 - s2 * 0.08);
+        const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+        ctx.drawImage(img, sx, sy, s2, s2, 0, 0, size, size);
+        URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('bad image')); };
+      img.src = url;
+    });
+  }
   async function guardForm(g) {
     const isNew = !g;
     g = g || { status: 'Active' };
@@ -247,7 +292,17 @@
     const res = await U.modal({
       title: isNew ? 'Add guard' : 'Edit ' + g.name,
       wide: true,
-      body: '<div class="form-grid">' +
+      onOpen: (m) => {
+        const inp = m.querySelector('#ph-file'), rm = m.querySelector('#ph-rm'), prev = m.querySelector('#ph-prev');
+        inp.onchange = async () => {
+          const f = inp.files[0]; if (!f) return;
+          try { m._photo = await resizePhoto(f, 256); prev.innerHTML = avatar({ name: g.name, photo: m._photo }, 84); rm.hidden = false; }
+          catch (e) { U.toast('Could not read that image.', 'error'); }
+        };
+        rm.onclick = () => { m._photo = ''; prev.innerHTML = avatar({ name: g.name || '?' }, 84); rm.hidden = true; };
+      },
+      body: '<div class="photo-edit"><div id="ph-prev">' + avatar(g, 84) + '</div><div><label class="btn btn-secondary btn-sm file-btn">' + (g.photo ? 'Change photo' : 'Add profile photo') + '<input type="file" accept="image/*" id="ph-file" hidden></label> <button type="button" class="btn btn-sm btn-ghost" id="ph-rm"' + (g.photo ? '' : ' hidden') + '>Remove</button><p class="muted">A clear head-and-shoulders photo, like an ID badge. It is resized automatically.</p></div></div>' +
+        '<div class="form-grid">' +
         '<label class="fld"><span>Full name *</span><input name="name" maxlength="80" value="' + esc(g.name || '') + '" required></label>' +
         '<label class="fld"><span>Status</span><select name="status">' + ['Active', 'Inactive', 'Suspended'].map((s) => opt(s, s, g.status)).join('') + '</select></label>' +
         '<label class="fld"><span>SIA licence number * (16 digits)</span><input name="siaNumber" inputmode="numeric" maxlength="19" value="' + esc(U.fmtSia(g.siaNumber || '')) + '" autocomplete="off"></label>' +
@@ -274,6 +329,7 @@
           if (f.siaNumber2 && !/^\d{4}-\d{2}-\d{2}$/.test(f.siaExpiry2)) return fieldErr(m, 'siaExpiry2', 'Enter the second licence expiry date.');
           if (!U.validPhone(f.phone)) return fieldErr(m, 'phone', 'Enter a valid phone number.');
           if (!U.validEmail(f.email)) return fieldErr(m, 'email', 'Enter a valid email address.');
+          if (m._photo !== undefined) g.photo = m._photo;
           const rec = Object.assign(g, { name: f.name, status: f.status, siaNumber: f.siaNumber, siaLicenceType: f.siaLicenceType, siaExpiry: f.siaExpiry, siaNumber2: f.siaNumber2 || '', siaExpiry2: f.siaNumber2 ? f.siaExpiry2 : '', phone: U.clean(f.phone, 20), email: U.clean(f.email, 120) });
           if (f.siaChecked && !g.siaCheckedAt) rec.siaCheckedAt = new Date().toISOString();
           if (!f.siaChecked) rec.siaCheckedAt = null;
@@ -768,20 +824,10 @@
 
   /* ---- Reports ---- */
   VIEWS.reports = function (v) {
-    const f = M.filters.rep = M.filters.rep || { site: (db.all('sites')[0] || {}).id || '', date: defaultReportDate() };
-    v.innerHTML = card('Daily security report',
-      '<div class="filters"><label class="fld fld-inline"><span>Site</span><select id="rp-site">' + siteOptions(f.site) + '</select></label>' +
-      '<label class="fld fld-inline"><span>Shift date</span><input type="date" id="rp-date" value="' + esc(f.date) + '"></label>' +
-      '<span class="grow"></span><button class="btn btn-secondary" id="rp-print">Print report</button><button class="btn btn-primary" id="rp-pdf">Export PDF</button></div>' +
-      '<p class="muted">The report covers shifts that start on the chosen date (night shifts run into the next morning). "Export PDF" opens your browser\u2019s print window — choose <b>Save as PDF</b> as the destination.</p>' +
-      '<div class="report-preview" id="rp-out">' + SW.reports.daily(f.site, f.date) + '</div>') +
-      card('CSV exports', '<div class="export-grid">' +
+    v.innerHTML = card('Security reports', '<div id="rp-host"></div>') +
+      card('Data exports (CSV for Excel)', '<div class="export-grid">' +
         [['patrols', 'Patrol history'], ['scans', 'Checkpoint scans'], ['incidents', 'Incident reports'], ['attendance', 'Attendance (clock in/out)'], ['welfare', 'Welfare checks'], ['audit', 'Audit log']].map((x) => '<button class="btn btn-secondary" data-csv="' + x[0] + '">' + x[1] + '</button>').join('') + '</div>');
-    U.$('#rp-site', v).onchange = (e) => { f.site = e.target.value; M.render(); };
-    U.$('#rp-date', v).onchange = (e) => { f.date = e.target.value; M.render(); };
-    const pr = () => SW.app.print(SW.reports.daily(f.site, f.date), 'Daily security report');
-    U.$('#rp-print', v).onclick = pr;
-    U.$('#rp-pdf', v).onclick = () => { U.toast('Choose "Save as PDF" in the print window', 'info', 4000); setTimeout(pr, 400); };
+    SW.reports.panel(U.$('#rp-host', v), { guards: true });
     v.querySelectorAll('[data-csv]').forEach((b) => (b.onclick = () => SW.exports[b.dataset.csv]()));
   };
   function defaultReportDate() {
@@ -816,6 +862,7 @@
         '<p class="muted">To move a guard\u2019s records to this computer: on the guard phone open <i>More › Send my data to a manager</i>, send the file to yourself, then import it here. Imported records are merged; existing records with the same ID are updated.</p>') +
       (SW.remote.enabled
         ? card('Logins', '<div id="login-mgr"><p class="muted">Loading logins…</p></div>') +
+          card('Email notifications', '<div id="mail-mgr"><p class="muted">Loading…</p></div>') +
           card('Server sync', '<dl class="dl-grid"><dt>Server</dt><dd>Supabase — London (UK)</dd><dt>Last sync</dt><dd>' + (SW.remote.lastSync ? U.fmtDateTime(SW.remote.lastSync) + ' (' + U.minsLabel(Date.now() - SW.remote.lastSync) + ')' : 'Not yet') + '</dd><dt>Waiting to upload</dt><dd>' + db.pending().length + ' change(s)</dd>' + (SW.remote.lastError ? '<dt>Last problem</dt><dd class="red-text">' + esc(SW.remote.lastError) + '</dd>' : '') + '</dl><div class="btn-row"><button class="btn btn-primary" id="sync-now">Sync now</button></div><p class="muted">Every device syncs automatically about every 20 seconds while it is online. Changes made offline upload when the signal returns.</p>')
         : card('Logins', '<div id="login-mgr"></div>') +
       card('Publish setup to all devices',
@@ -837,6 +884,7 @@
     U.$('#bk-imp', v).onchange = (e) => SW.app.importBackup(e.target.files[0]);
     if (SW.remote.enabled) {
       renderLoginsRemote(U.$('#login-mgr', v));
+      renderMail(U.$('#mail-mgr', v));
       U.$('#sync-now', v).onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Syncing…'; await SW.app.syncNow(); U.toast(SW.remote.lastError ? 'Sync problem: ' + SW.remote.lastError : 'Synced with the server', SW.remote.lastError ? 'error' : 'ok'); M.render(); };
     } else {
       U.$('#pub-cfg', v).onclick = publishConfig;
@@ -888,6 +936,27 @@
       renderLogins(host);
     }));
   }
+  async function renderMail(host) {
+    let m;
+    try { m = await SW.remote.mailSettings(); }
+    catch (e) { host.innerHTML = '<p class="red-text">' + esc(/function|does not exist|schema/i.test(e.message) ? 'Run 04-upgrade.sql in Supabase to turn on email features.' : e.message) + '</p>'; return; }
+    const pop = 'Notification' in window ? Notification.permission : 'unsupported';
+    host.innerHTML =
+      '<form id="mail-form" class="form-grid"><label class="fld span2"><span>Send alerts to (comma-separate several emails)</span><input name="emails" maxlength="500" value="' + esc(m.alert_emails || '') + '" placeholder="you@gmail.com, manager@crystalservices.uk.com"></label>' +
+      '<label class="fld span2"><span>App link used in emails</span><input name="url" maxlength="200" value="' + esc(m.app_url || '') + '"></label>' +
+      '<div class="span2 btn-row"><button class="btn btn-primary">Save</button><button type="button" class="btn btn-secondary" id="mail-test">Send test email</button><button type="button" class="btn btn-secondary" id="pop-on">' + (pop === 'granted' ? '🔔 Pop-up alerts on (this device)' : 'Turn on pop-up alerts on this device') + '</button></div></form>' +
+      '<p class="muted">Alerts are emailed for: SOS, missed welfare checks, High/Critical incidents and incomplete patrols. Emails waiting to send: <b>' + m.waiting + '</b>' + (m.last_sent ? ' · last sent ' + U.fmtDateTime(m.last_sent) : ' · nothing sent yet') + '.</p>' +
+      '<details class="mail-key"><summary>Gmail sender set-up (mail key)</summary><p>Emails are sent from your Gmail by the Google Apps Script. Add this key in the script\u2019s Script properties as <code>MAILER_SECRET</code>, then run <b>setupMailer</b> once.</p><p class="pw-show small">' + esc(m.mailer_secret) + '</p><p class="muted">Keep this key private.</p></details>';
+    U.$('#mail-form', host).onsubmit = async (e) => {
+      e.preventDefault();
+      const f = formData(e.target);
+      const bad = f.emails.split(',').map((x) => x.trim()).filter(Boolean).filter((x) => !U.validEmail(x));
+      if (bad.length) return U.toast('Check this email: ' + bad[0], 'error');
+      try { await SW.remote.saveMailSettings(f.emails, f.url); U.toast('Email settings saved', 'ok'); await db.audit('Email settings changed'); } catch (err) { U.toast(err.message, 'error'); }
+    };
+    U.$('#mail-test', host).onclick = async () => { try { await SW.remote.sendTestMail(); U.toast('Test email queued. It arrives within about a minute if the Gmail sender is running.', 'ok', 6000); renderMail(host); } catch (err) { U.toast(err.message, 'error'); } };
+    U.$('#pop-on', host).onclick = async () => { await SW.app.enableAlerts(); renderMail(host); };
+  }
   async function renderLoginsRemote(host) {
     let list;
     try { list = await SW.remote.listLogins(); }
@@ -896,11 +965,12 @@
         { label: 'Username', html: (u) => '<b>' + esc(u.username) + '</b>' },
         { label: 'Name', html: (u) => esc(u.display_name || '') },
         { label: 'Role', html: (u) => esc(u.role) + (u.guard_id ? '<small class="blk">' + esc(Q.guardName(u.guard_id)) + '</small>' : '') },
+        { label: 'Email', html: (u) => (u.email ? esc(u.email) : '<span class="muted">None</span>') + ' <button class="link-btn link-dark" data-em="' + esc(u.username) + '" data-cur="' + esc(u.email || '') + '">Edit</button>' },
         { label: 'Last sign-in', html: (u) => (u.last_sign_in_at ? U.fmtDateTime(u.last_sign_in_at) : '—') },
-        { label: '', html: (u) => '<button class="btn btn-sm btn-secondary" data-pw="' + esc(u.username) + '">New password</button> ' + (u.username === SW.session.username ? '' : '<button class="btn btn-sm btn-danger-ghost" data-rm="' + esc(u.username) + '">Remove</button>') },
+        { label: '', html: (u) => '<button class="btn btn-sm btn-secondary" data-pw="' + esc(u.username) + '" data-has="' + (u.email ? '1' : '') + '">New password</button> ' + (u.username === SW.session.username ? '' : '<button class="btn btn-sm btn-danger-ghost" data-rm="' + esc(u.username) + '">Remove</button>') },
       ], list || [], 'No logins.') +
       '<div class="btn-row"><button class="btn btn-secondary" id="lg-add">Add login</button></div>' +
-      '<p class="muted">Changes take effect straight away on every device. Removing a login or changing its password signs that person out.</p>';
+      '<p class="muted">Changes take effect straight away on every device. With an email saved, people can use "Forgot password?" on the sign-in screen and receive login details by email (needs the Gmail sender — see Email notifications).</p>';
     U.$('#lg-add', host).onclick = async () => {
       const pw0 = genPassword();
       const res = await U.modal({
@@ -909,7 +979,9 @@
           '<label class="fld"><span>Guard (for guard logins)</span><select name="guardId">' + opt('', '—') + db.all('guards').map((g) => opt(g.id, g.name)).join('') + '</select></label>' +
           '<label class="fld"><span>Username</span><input name="username" maxlength="40" autocomplete="off" autocapitalize="none"></label>' +
           '<label class="fld"><span>Display name</span><input name="displayName" maxlength="60"></label>' +
-          '<label class="fld span2"><span>Password (at least 10 characters)</span><input name="password" maxlength="100" value="' + esc(pw0) + '" autocomplete="off"></label></div>',
+          '<label class="fld"><span>Password (at least 10 characters)</span><input name="password" maxlength="100" value="' + esc(pw0) + '" autocomplete="off"></label>' +
+          '<label class="fld"><span>Email (for password reset and notices)</span><input name="email" type="email" maxlength="120" autocomplete="off"></label>' +
+          '<label class="fld chk span2"><input type="checkbox" name="send" checked><span>Email the username and password to this person</span></label></div>',
         actions: [{ label: 'Cancel', value: null }, { label: 'Add login', cls: 'btn-primary', onClick: async (m) => {
           const f = formData(m);
           const username = U.clean(f.username, 40).toLowerCase();
@@ -918,20 +990,28 @@
           if ((f.password || '').length < 10) return fieldErr(m, 'password', 'Use at least 10 characters.');
           const g = f.guardId ? db.get('guards', f.guardId) : null;
           try {
-            await SW.remote.createLogin({ p_username: username, p_password: f.password, p_role: f.role, p_display: U.clean(f.displayName, 60) || (g ? g.name : username), p_guard: f.role === 'guard' ? f.guardId : null, p_sites: f.role === 'manager' ? [] : db.all('sites').map((x) => x.id) });
+            if (f.email && !U.validEmail(f.email)) return fieldErr(m, 'email', 'That email address does not look right.');
+            await SW.remote.createLogin({ p_username: username, p_password: f.password, p_role: f.role, p_display: U.clean(f.displayName, 60) || (g ? g.name : username), p_guard: f.role === 'guard' ? f.guardId : null, p_sites: f.role === 'manager' ? [] : db.all('sites').map((x) => x.id), p_email: U.clean(f.email, 120), p_send: !!(f.send && f.email) });
           } catch (e) { return fieldErr(m, 'username', e.message); }
-          return { username, pw: f.password };
+          return { username, pw: f.password, mailed: !!(f.send && f.email) };
         } }],
       });
-      if (res) { await db.audit('Login created', { subject: res.username }); await U.modal({ title: 'Login added', body: '<p>Username: <b>' + esc(res.username) + '</b></p><p class="pw-show">' + esc(res.pw) + '</p><p class="muted">Note this password now — it cannot be shown again.</p>', actions: [{ label: 'Done', cls: 'btn-primary' }] }); }
+      if (res) { await db.audit('Login created', { subject: res.username }); await U.modal({ title: 'Login added', body: '<p>Username: <b>' + esc(res.username) + '</b></p><p class="pw-show">' + esc(res.pw) + '</p><p class="muted">' + (res.mailed ? 'The login details are also being emailed to them. ' : '') + 'Note this password now — it cannot be shown again.</p>', actions: [{ label: 'Done', cls: 'btn-primary' }] }); }
       renderLoginsRemote(host);
     };
     host.querySelectorAll('[data-pw]').forEach((b) => (b.onclick = async () => {
-      if (!(await U.confirm('New password?', 'Create a new password for ' + b.dataset.pw + '? The old one stops working immediately.', 'Create password'))) return;
+      const go = await U.modal({ title: 'New password for ' + b.dataset.pw, body: '<p>A new password will be created. The old one stops working immediately and the person is signed out.</p>' + (b.dataset.has ? '<label class="fld chk"><input type="checkbox" name="notify" checked><span>Email the new password to them</span></label>' : '<p class="muted">No email saved for this login, so give them the password yourself.</p>'),
+        actions: [{ label: 'Cancel', value: null }, { label: 'Create password', cls: 'btn-primary', onClick: (m) => ({ notify: !!(m.querySelector('[name=notify]') || {}).checked }) }] });
+      if (!go) return;
       const pw = genPassword();
-      try { await SW.remote.setPassword(b.dataset.pw, pw); } catch (e) { return U.toast(e.message, 'error'); }
+      try { await SW.remote.setPassword(b.dataset.pw, pw, go.notify); } catch (e) { return U.toast(e.message, 'error'); }
       await db.audit('Password reset', { subject: b.dataset.pw });
-      await U.modal({ title: 'New password for ' + b.dataset.pw, body: '<p class="pw-show">' + esc(pw) + '</p><p class="muted">Give this to the user. It works straight away.</p>', actions: [{ label: 'Done', cls: 'btn-primary' }] });
+      await U.modal({ title: 'New password for ' + b.dataset.pw, body: '<p class="pw-show">' + esc(pw) + '</p><p class="muted">' + (go.notify ? 'It is also being emailed to them. ' : 'Give this to the user. ') + 'It works straight away.</p>', actions: [{ label: 'Done', cls: 'btn-primary' }] });
+    }));
+    host.querySelectorAll('[data-em]').forEach((b) => (b.onclick = async () => {
+      const em = await U.modal({ title: 'Email for ' + b.dataset.em, body: '<label class="fld"><span>Email address (leave empty to remove)</span><input name="e" type="email" maxlength="120" value="' + esc(b.dataset.cur) + '"></label><p class="muted">Used for "Forgot password?" codes and login notices.</p>',
+        actions: [{ label: 'Cancel', value: null }, { label: 'Save', cls: 'btn-primary', onClick: async (m) => { const v = m.querySelector('[name=e]').value.trim(); if (v && !U.validEmail(v)) { U.toast('That email address does not look right.', 'error'); return false; } try { await SW.remote.setEmail(b.dataset.em, v); } catch (e) { U.toast(e.message, 'error'); return false; } return 'ok'; } }] });
+      if (em) { U.toast('Email saved', 'ok'); renderLoginsRemote(host); }
     }));
     host.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
       if (!(await U.confirm('Remove login?', 'Remove ' + b.dataset.rm + '? They will be signed out and cannot sign in again.', 'Remove', true))) return;
@@ -1047,10 +1127,9 @@
           { label: 'Guard explanation', html: (p) => esc(p.explanation || '—') },
         ], missed, 'No missed checkpoints recorded.')) +
         card('Incidents', M.incidentTable(inc)) +
-        card('Daily report', '<div class="filters"><label class="fld fld-inline"><span>Shift date</span><input type="date" id="cl-date" value="' + esc(repDate) + '"></label><span class="grow"></span><button class="btn btn-primary" id="cl-print">Print / save PDF</button></div><div class="report-preview">' + SW.reports.daily(sid, repDate) + '</div>');
+        card('Reports', '<div id="cl-rep"></div>');
       const ss = U.$('#cl-site', host); if (ss) ss.onchange = (e) => { SW.client.site = e.target.value; SW.client.render(host, siteIds, preview); };
-      U.$('#cl-date', host).onchange = (e) => { SW.client.date = e.target.value; SW.client.render(host, siteIds, preview); };
-      U.$('#cl-print', host).onclick = () => SW.app.print(SW.reports.daily(sid, SW.client.date || repDate), 'Daily security report');
+      SW.reports.panel(U.$('#cl-rep', host), { siteIds: [sid] });
       M.bindInc(host, false);
       M.bindPatrolRows(host);
     },

@@ -39,7 +39,7 @@
     root.innerHTML =
       '<div class="g-app">' +
       '<header class="g-top">' +
-      '<div class="g-brand"><span class="logo-mark sm" aria-hidden="true"></span><div><strong>SecureWatch</strong><small id="g-site">—</small></div></div>' +
+      '<div class="g-brand">' + (function () { const g = Q.guard(SW.session.guardId); return g && g.photo ? '<img class="avatar" src="' + g.photo + '" alt="" width="34" height="34">' : '<span class="logo-mark sm" aria-hidden="true"></span>'; })() + '<div><strong>' + esc((SW.session.displayName || 'SecureWatch').split(' ')[0]) + '</strong><small id="g-site">—</small></div></div>' +
       '<div class="g-chips"><button class="chip" id="g-gps" aria-label="GPS status — tap to refresh"></button><span class="chip" id="g-net"></span></div>' +
       '</header>' +
       (db.settings().demoMode ? '<div class="demo-strip">Training mode — simulated scans are allowed</div>' : '') +
@@ -698,6 +698,7 @@
       item('welfare', ICON.welfare, 'Welfare check') +
       item('log', ICON.patrol, 'My shift activity') +
       (SW.remote.enabled ? item('syncnow', ICON.end, 'Sync now') : item('export', ICON.end, 'Send my data to a manager')) +
+      (SW.remote.enabled ? item('password', ICON.patrol, 'Change password') : '') +
       item('privacy', ICON.book, 'Privacy notice') +
       item('logout', ICON.end, 'Sign out') +
       '</div>' +
@@ -707,6 +708,7 @@
       const k = b.dataset.item;
       if (k === 'logout') { if (await U.confirm('Sign out?', onDuty() ? 'Your shift stays open. Sign back in to continue it.' : 'You will return to the sign-in screen.', 'Sign out')) SW.app.logout(); }
       else if (k === 'export') SW.app.exportBackup(true);
+      else if (k === 'password') SW.app.changePassword();
       else if (k === 'syncnow') { if (!navigator.onLine) return U.toast('No signal. Your records are saved and will upload automatically.', 'info', 5000); await SW.app.syncNow(); U.toast(SW.remote.lastError ? 'Sync problem: ' + SW.remote.lastError : 'All data synced with the server', SW.remote.lastError ? 'error' : 'ok'); }
       else G.go('more', k);
     }));

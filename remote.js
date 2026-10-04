@@ -191,8 +191,30 @@
   /* ---------- login management (managers) ---------- */
   R.listLogins = () => R.rpc('sw_list_logins');
   R.createLogin = (a) => R.rpc('sw_create_login', a);
-  R.setPassword = (username, password) => R.rpc('sw_set_password', { p_username: username, p_password: password });
+  R.setPassword = (username, password, notify) => R.rpc('sw_set_password', { p_username: username, p_password: password, p_notify: !!notify });
+  R.setEmail = (username, email) => R.rpc('sw_set_email', { p_username: username, p_email: email || '' });
   R.deleteLogin = (username) => R.rpc('sw_delete_login', { p_username: username });
+  R.mailSettings = () => R.rpc('sw_mail_settings');
+  R.saveMailSettings = (emails, url) => R.rpc('sw_save_mail_settings', { p_alert_emails: emails, p_app_url: url });
+  R.sendTestMail = () => R.rpc('sw_send_test_mail');
+
+  /* checks a password without changing the current sign-in */
+  R.checkPassword = async function (username, password) {
+    const email = username.includes('@') ? username : username + '@' + R.domain;
+    try { await authCall('token?grant_type=password', { email, password }); return true; } catch (e) { return false; }
+  };
+
+  /* ---------- forgot password (no sign-in needed) ---------- */
+  async function anonRpc(name, args) {
+    const h = { apikey: R.key, 'Content-Type': 'application/json' };
+    if (/^eyJ/.test(R.key)) h.Authorization = 'Bearer ' + R.key; // legacy anon keys
+    const res = await fetch(R.url + '/rest/v1/rpc/' + name, { method: 'POST', headers: h, body: JSON.stringify(args || {}) });
+    const t = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((t && (t.message || t.hint)) || ('Server error ' + res.status));
+    return t;
+  }
+  R.requestReset = (username) => anonRpc('sw_request_reset', { p_username: username });
+  R.resetWithCode = (username, code, password) => anonRpc('sw_reset_with_code', { p_username: username, p_code: code, p_password: password });
 
   if (R.enabled) SW.syncAdapter = { name: 'SecureWatch server (Supabase, London)', remote: true, push: R.push };
 })();

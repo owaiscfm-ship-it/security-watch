@@ -544,3 +544,40 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .credit-side { margin: 0; padding: 0 18px 12px; text-align: left; color: #6F86B8; }
 .g-app .credit { color: #6F86B8; }
 .pw-show { font-family: var(--font-c); font-size: 30px; font-weight: 700; letter-spacing: .03em; background: var(--paper); border: 1px dashed var(--line); border-radius: var(--r-sm); padding: 10px 14px; text-align: center; user-select: all; }
+
+/* ---------- v2.1: avatars, team, reports, notifications ---------- */
+.avatar { display: inline-block; width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; background: var(--sky); vertical-align: middle; }
+.avatar-i { display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--navy-700), var(--blue)); color: #fff; font-weight: 700; letter-spacing: .02em; }
+.g-brand .avatar { width: 34px; height: 34px; border: 2px solid rgba(255,255,255,.6); }
+.who { display: inline-flex; align-items: center; gap: 10px; }
+.team-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #EEF2F8; }
+.team-row:last-child { border-bottom: 0; }
+.team-row > div { flex: 1; min-width: 0; }
+.team-row small { display: block; color: var(--ink-2); font-size: 13px; }
+.photo-edit { display: flex; gap: 16px; align-items: center; margin-bottom: 14px; padding: 12px; border-radius: var(--r); background: var(--paper); }
+.photo-edit .avatar { width: 84px; height: 84px; }
+.photo-edit p { margin: 6px 0 0; font-size: 13px; }
+.side-links { white-space: nowrap; }
+.link-dark { color: var(--blue-600); font-size: 13px; }
+.login-forgot { text-align: right; margin: -4px 0 6px; font-size: 14px; }
+.seg-sm span { padding: 7px 14px; font-size: 14px; }
+.rp-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 6px; }
+.rp-nav { display: flex; align-items: flex-end; gap: 6px; }
+.rp-nav .icon-btn { font-size: 20px; }
+.rp-hint { margin: 4px 0 12px; font-size: 13px; }
+.rp-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 6px; }
+.rp-kpis div { border: 1px solid #D8E0EC; border-top: 4px solid var(--blue); border-radius: 6px; padding: 8px 10px; }
+.rp-kpis span { display: block; font-size: 11px; color: #4A5878; text-transform: uppercase; letter-spacing: .04em; }
+.rp-kpis b { display: block; font-size: 22px; font-family: var(--font-c); }
+.rp-kpis em { font-style: normal; font-size: 12px; color: #4A5878; }
+.rp-chart { margin: 12px 0 4px; }
+.rp-chart-t { font-weight: 700; color: var(--navy-800); margin: 0 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.rp-legend { font-size: 12px; color: var(--ink-2); margin: 4px 0 0; }
+.rp-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }
+.rp-legend i:first-child { margin-left: 0; }
+.mail-key { margin-top: 10px; border: 1px dashed var(--line); border-radius: var(--r-sm); padding: 8px 12px; }
+.mail-key summary { cursor: pointer; font-weight: 600; }
+.pw-show.small { font-size: 15px; font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
+@media (max-width: 860px) { .rp-kpis { grid-template-columns: 1fr 1fr; } }
+@media print { .rp-kpis { grid-template-columns: repeat(6, 1fr); } .rp-kpis b { font-size: 18px; } }
+svg.chart-svg, .rp-chart svg { width: 100%; height: auto; stroke: none; stroke-width: 0; }

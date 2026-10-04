@@ -62,6 +62,7 @@
       if (!SW.session || !SW.session.remote || document.hidden) return;
       const n = await SW.remote.sync();
       if (n > 0) refreshView();
+      app.checkAlerts();
       const dot = document.getElementById('m-net') || document.getElementById('g-net');
       if (dot && SW.remote.lastError && navigator.onLine) dot.title = 'Sync problem: ' + SW.remote.lastError;
     };
@@ -106,10 +107,12 @@
       '<label class="fld"><span>Password</span><input name="password" type="password" autocomplete="current-password" maxlength="100" required></label>' +
       '<p class="login-err" id="login-err" role="alert"></p>' +
       '<button class="btn btn-primary btn-block btn-lg" id="login-btn">Sign in</button>' +
+      (SW.remote && SW.remote.enabled ? '<p class="login-forgot"><a href="#" id="forgot-link">Forgot password?</a></p>' : '') +
       '<p class="login-foot"><a href="#" id="privacy-link">Privacy notice</a> — Authorised users only. Activity is logged.</p>' +
       '<p class="credit">SecureWatch by Syed Owais</p>' +
       '</form></section></div>';
     const f = U.$('#login-form');
+    const fl = U.$('#forgot-link'); if (fl) fl.onclick = (e) => { e.preventDefault(); app.forgotPassword(f.username.value); };
     U.$('#privacy-link').onclick = (e) => { e.preventDefault(); U.modal({ title: 'Privacy notice', body: app.privacyHtml(), wide: true, actions: [{ label: 'Close', cls: 'btn-primary' }] }); };
     f.onsubmit = async (e) => {
       e.preventDefault();
@@ -123,6 +126,100 @@
       app.route();
     };
   }
+
+  /* ---------------- Passwords ---------------- */
+  const pwOk = (p) => typeof p === 'string' && p.length >= 10;
+  app.forgotPassword = async function (prefill) {
+    const user = await U.modal({
+      title: 'Reset your password',
+      body: '<p>Enter your username. If an email address is saved for your login, we will email you a 6-digit code.</p><label class="fld"><span>Username</span><input name="u" value="' + esc(prefill || '') + '" autocapitalize="none" autocomplete="username"></label><p class="muted">No email saved? Ask your manager to reset your password.</p>',
+      actions: [{ label: 'Cancel', value: null }, { label: 'Email me a code', cls: 'btn-primary', onClick: (m) => { const v = m.querySelector('[name=u]').value.trim().toLowerCase(); return v || false; } }],
+    });
+    if (!user) return;
+    if (!navigator.onLine) return U.toast('You need internet to reset your password.', 'error');
+    try { await SW.remote.requestReset(user); } catch (e) { return U.toast(e.message, 'error'); }
+    const done = await U.modal({
+      title: 'Check your email',
+      body: '<p>If <b>' + esc(user) + '</b> has an email address saved, a code is on its way (it can take a minute — check Spam too).</p>' +
+        '<label class="fld"><span>6-digit code</span><input name="c" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>' +
+        '<label class="fld"><span>New password (at least 10 characters)</span><input name="p" type="password" autocomplete="new-password" maxlength="100"></label>' +
+        '<label class="fld"><span>Repeat new password</span><input name="p2" type="password" autocomplete="new-password" maxlength="100"></label>',
+      actions: [{ label: 'Cancel', value: null }, { label: 'Set new password', cls: 'btn-primary', onClick: async (m) => {
+        const c = m.querySelector('[name=c]').value.trim(), p = m.querySelector('[name=p]').value, p2 = m.querySelector('[name=p2]').value;
+        if (!/^\d{6}$/.test(c)) { U.toast('Enter the 6-digit code from the email.', 'error'); return false; }
+        if (!pwOk(p)) { U.toast('Use at least 10 characters.', 'error'); return false; }
+        if (p !== p2) { U.toast('The two passwords do not match.', 'error'); return false; }
+        try { const ok = await SW.remote.resetWithCode(user, c, p); if (!ok) { U.toast('That code is wrong or has expired.', 'error'); return false; } }
+        catch (e) { U.toast(e.message, 'error'); return false; }
+        return true;
+      } }],
+    });
+    if (done) U.toast('Password changed. Sign in with your new password.', 'ok', 6000);
+  };
+  app.changePassword = async function () {
+    if (!SW.session) return;
+    if (!SW.remote.enabled) return U.toast('Passwords are managed by your manager in this version.', 'info');
+    if (!navigator.onLine) return U.toast('You need internet to change your password.', 'error');
+    const ok = await U.modal({
+      title: 'Change password',
+      body: '<label class="fld"><span>Current password</span><input name="o" type="password" autocomplete="current-password" maxlength="100"></label>' +
+        '<label class="fld"><span>New password (at least 10 characters)</span><input name="p" type="password" autocomplete="new-password" maxlength="100"></label>' +
+        '<label class="fld"><span>Repeat new password</span><input name="p2" type="password" autocomplete="new-password" maxlength="100"></label>',
+      actions: [{ label: 'Cancel', value: null }, { label: 'Change password', cls: 'btn-primary', onClick: async (m) => {
+        const o = m.querySelector('[name=o]').value, p = m.querySelector('[name=p]').value, p2 = m.querySelector('[name=p2]').value;
+        if (!pwOk(p)) { U.toast('Use at least 10 characters.', 'error'); return false; }
+        if (p !== p2) { U.toast('The two new passwords do not match.', 'error'); return false; }
+        if (p === o) { U.toast('Choose a different password.', 'error'); return false; }
+        if (!(await SW.remote.checkPassword(SW.session.username, o))) { U.toast('Current password is wrong.', 'error'); return false; }
+        try { await SW.remote.setPassword(SW.session.username, p, false); } catch (e) { U.toast(e.message, 'error'); return false; }
+        return true;
+      } }],
+    });
+    if (ok) { await db.audit('Password changed (own)'); U.toast('Password changed', 'ok'); }
+  };
+
+  /* ---------------- In-app alerts (manager devices) ---------------- */
+  const SEEN_KEY = 'sw_alert_seen';
+  function alertEvents() {
+    const out = [];
+    db.all('sosEvents').forEach((e) => { if (e.status === 'Active') out.push({ key: 'sos|' + e.id, title: 'SOS ACTIVATED', body: SW.q.guardName(e.guardId) + ' — ' + SW.q.siteName(e.siteId) + ' at ' + U.fmtTime(e.at), urgent: true }); });
+    db.all('welfareChecks').forEach((w) => { if (w.status === 'Missed') out.push({ key: 'wel|' + w.id, title: 'Missed welfare check', body: SW.q.guardName(w.guardId) + ' — due ' + U.fmtTime(w.dueAt) }); });
+    db.all('incidents').forEach((i) => { if (i.severity === 'High' || i.severity === 'Critical') out.push({ key: 'inc|' + i.id, title: i.severity + ' incident', body: i.type + ' — ' + SW.q.guardName(i.guardId) + ' (' + i.id + ')', urgent: i.severity === 'Critical' }); });
+    db.all('patrols').forEach((p) => { if (p.status === 'Incomplete') out.push({ key: 'pat|' + p.id, title: 'Incomplete patrol', body: SW.q.guardName(p.guardId) + ' — ' + p.id }); });
+    return out;
+  }
+  function beep(urgent) {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const times = urgent ? [0, 0.35, 0.7] : [0];
+      times.forEach((t) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = urgent ? 880 : 660; o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.25, ctx.currentTime + t); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.3); o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.3); });
+    } catch (_) { /* sound not available */ }
+  }
+  app.checkAlerts = function () {
+    if (!SW.session || SW.session.role !== 'manager') return;
+    let seen = null;
+    try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || 'null'); } catch (_) { seen = null; }
+    const evs = alertEvents();
+    if (!seen) { localStorage.setItem(SEEN_KEY, JSON.stringify(evs.map((e) => e.key))); return; } // first run: don't alert for old events
+    const set = new Set(seen);
+    const fresh = evs.filter((e) => !set.has(e.key));
+    if (!fresh.length) return;
+    fresh.forEach((e) => {
+      set.add(e.key);
+      U.toast(e.title + ': ' + e.body, e.urgent ? 'error' : 'info', 9000);
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try { new Notification('SecureWatch — ' + e.title, { body: e.body, icon: 'icon-192.png', tag: e.key, requireInteraction: !!e.urgent }); } catch (_) { /* some phones need the service worker */ }
+      }
+    });
+    beep(fresh.some((e) => e.urgent));
+    localStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(set).slice(-2000)));
+  };
+  app.enableAlerts = async function () {
+    if (!('Notification' in window)) return U.toast('This browser cannot show pop-up alerts. Alerts will still appear inside the app.', 'info', 6000);
+    const r = await Notification.requestPermission();
+    U.toast(r === 'granted' ? 'Pop-up alerts are on for this device while SecureWatch is open.' : 'Pop-up alerts were blocked. You can allow them in the browser settings.', r === 'granted' ? 'ok' : 'error', 6000);
+    if (SW.manager && mounted === 'manager') SW.manager.render(true);
+  };
 
   /* ---------------- Online / offline + sync ---------------- */
   function onNet() {
