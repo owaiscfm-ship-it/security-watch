@@ -737,13 +737,15 @@
     if (!s) { v.innerHTML = '<button class="g-back" data-back>‹ More</button>' + lockedHtml('Welfare checks start when your shift starts.'); bindBack(v); bindLocked(v); return; }
     const ev = await OPS.evaluateWelfare(s);
     const last = db.where('welfareChecks', (w) => w.shiftId === s.id && w.status === 'Confirmed').sort((a, b) => (a.at < b.at ? 1 : -1))[0];
-    const interval = s.welfareFreq || db.settings().welfareInterval;
+    const off = ev.state === 'off';
+    const label = ev.state === 'due' ? 'Due now' : ev.state === 'soon' ? 'Due at' : 'Next check';
+    const when = ev.state === 'due' || ev.state === 'soon' ? U.fmtTime(ev.dueAt) : ev.nextAt ? U.fmtTime(ev.nextAt) : off ? 'Off' : 'None left';
     v.innerHTML = '<button class="g-back" data-back>‹ More</button>' +
-      '<h1 class="g-h1">Welfare check</h1><p class="g-sub">Every ' + interval + ' minutes this shift.</p>' +
+      '<h1 class="g-h1">Welfare check</h1><p class="g-sub">' + esc(OPS.welfareSummary()) + '.</p>' +
       '<section class="g-card g-shift-grid two">' +
       '<div><small>Last confirmed</small><b>' + (last ? U.fmtTime(last.at) : '—') + '</b></div>' +
-      '<div><small>' + (ev.state === 'due' ? 'Due now' : 'Next due') + '</small><b class="' + (ev.state === 'due' ? 'warn-text' : '') + '">' + (ev.state === 'due' ? U.fmtTime(ev.dueAt) : ev.nextAt ? U.fmtTime(ev.nextAt) : '—') + '</b></div></section>' +
-      '<button class="g-btn g-btn-ok g-btn-xl" id="wf-now">I\u2019m safe</button><p class="g-hint">You can confirm early at any time. The next check is timed from your last confirmation.</p>';
+      '<div><small>' + label + '</small><b class="' + (ev.state === 'due' ? 'warn-text' : '') + '">' + when + '</b></div></section>' +
+      '<button class="g-btn g-btn-ok g-btn-xl" id="wf-now">I\u2019m safe</button><p class="g-hint">' + (off ? 'Scheduled checks are off, but you can still record that you are safe.' : 'You will be prompted when a check is due. You can confirm up to 20 minutes early.') + '</p>';
     bindBack(v);
     U.$('#wf-now', v).onclick = async (e) => {
       e.target.disabled = true; e.target.textContent = 'Recording…';

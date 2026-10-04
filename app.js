@@ -103,16 +103,18 @@
       '<section class="login-main"><form id="login-form" class="login-card" novalidate>' +
       '<h1>Sign in</h1>' +
       '<p class="muted">Use the username and password given to you by your manager.</p>' +
-      '<label class="fld"><span>Username</span><input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="40" required></label>' +
+      '<label class="fld"><span>Username or email</span><input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="120" required></label>' +
       '<label class="fld"><span>Password</span><input name="password" type="password" autocomplete="current-password" maxlength="100" required></label>' +
       '<p class="login-err" id="login-err" role="alert"></p>' +
       '<button class="btn btn-primary btn-block btn-lg" id="login-btn">Sign in</button>' +
+      (SW.remote && SW.remote.enabled ? '<p class="login-signup">New here? <a href="#" id="signup-link">Create an account</a></p>' : '') +
       (SW.remote && SW.remote.enabled ? '<p class="login-forgot"><a href="#" id="forgot-link">Forgot password?</a></p>' : '') +
       '<p class="login-foot"><a href="#" id="privacy-link">Privacy notice</a> — Authorised users only. Activity is logged.</p>' +
       '<p class="credit">SecureWatch by Syed Owais</p>' +
       '</form></section></div>';
     const f = U.$('#login-form');
     const fl = U.$('#forgot-link'); if (fl) fl.onclick = (e) => { e.preventDefault(); app.forgotPassword(f.username.value); };
+    const sl = U.$('#signup-link'); if (sl) sl.onclick = (e) => { e.preventDefault(); app.signup(); };
     U.$('#privacy-link').onclick = (e) => { e.preventDefault(); U.modal({ title: 'Privacy notice', body: app.privacyHtml(), wide: true, actions: [{ label: 'Close', cls: 'btn-primary' }] }); };
     f.onsubmit = async (e) => {
       e.preventDefault();
@@ -155,6 +157,30 @@
       } }],
     });
     if (done) U.toast('Password changed. Sign in with your new password.', 'ok', 6000);
+  };
+  app.signup = async function () {
+    const res = await U.modal({
+      title: 'Create an account',
+      body: '<p>Fill this in and a manager will approve your account. You will get an email when it is ready.</p>' +
+        '<div class="form-grid"><label class="fld span2"><span>Full name</span><input name="name" maxlength="60" autocomplete="name"></label>' +
+        '<label class="fld span2"><span>Email address</span><input name="email" type="email" maxlength="120" autocomplete="email"></label>' +
+        '<label class="fld"><span>Choose a username</span><input name="username" maxlength="40" autocapitalize="none" autocomplete="username" placeholder="e.g. john.smith"></label>' +
+        '<label class="fld"><span>Password (at least 10 characters)</span><input name="password" type="password" maxlength="100" autocomplete="new-password"></label>' +
+        '<label class="fld span2"><span>Note for the manager (optional)</span><input name="note" maxlength="300" placeholder="e.g. cover guard for ATL Medical, SIA number…"></label></div>',
+      actions: [{ label: 'Cancel', value: null }, { label: 'Send request', cls: 'btn-primary', onClick: async (m) => {
+        const v = (n) => m.querySelector('[name=' + n + ']').value.trim();
+        const name = v('name'), email = v('email'), username = v('username').toLowerCase(), password = m.querySelector('[name=password]').value;
+        if (name.length < 2) { U.toast('Enter your full name.', 'error'); return false; }
+        if (!U.validEmail(email) || !email) { U.toast('Enter a valid email address.', 'error'); return false; }
+        if (!/^[a-z0-9._-]{3,40}$/.test(username)) { U.toast('Username: 3–40 letters, numbers, dots or dashes.', 'error'); return false; }
+        if (!pwOk(password)) { U.toast('Password must be at least 10 characters.', 'error'); return false; }
+        if (!navigator.onLine) { U.toast('You need internet to create an account.', 'error'); return false; }
+        try { await SW.remote.signup({ p_name: name, p_email: email, p_username: username, p_password: password, p_note: v('note') }); }
+        catch (e) { U.toast(e.message, 'error', 6000); return false; }
+        return true;
+      } }],
+    });
+    if (res) U.modal({ title: 'Request sent', body: '<p>Thanks! A manager will review your request. You will get an email when your account is approved, then you can sign in with your username or email.</p>', actions: [{ label: 'OK', cls: 'btn-primary' }] });
   };
   app.changePassword = async function () {
     if (!SW.session) return;

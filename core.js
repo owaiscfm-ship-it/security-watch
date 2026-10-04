@@ -130,7 +130,7 @@
   const Q = (SW.q = {
     guard: (id) => db.get('guards', id),
     site: (id) => db.get('sites', id),
-    guardName: (id) => (db.get('guards', id) || {}).name || 'Unknown guard',
+    guardName: (id) => (db.get('guards', id) || {}).name || (SW.session && SW.session.role === 'client' ? 'Security officer' : 'Unknown guard'),
     siteName: (id) => (db.get('sites', id) || {}).name || 'Unknown site',
     routesForSite: (siteId) => db.where('patrolRoutes', (r) => r.siteId === siteId).sort((a, b) => (a.name > b.name ? 1 : -1)),
     routeName: (id) => (db.get('patrolRoutes', id) || {}).name || 'Patrol',
@@ -160,8 +160,7 @@
       return Math.max(1, Math.floor((new Date(shift.endAt) - new Date(shift.startAt)) / (freq * 60000)));
     },
     scheduledWelfare(shift) {
-      const freq = shift.welfareFreq || db.settings().welfareInterval;
-      return Math.max(1, Math.floor((new Date(shift.endAt) - new Date(shift.startAt)) / (freq * 60000)));
+      return SW.ops.welfareSchedule(Object.assign({}, shift, { actualStart: shift.actualStart || shift.startAt })).length;
     },
     patrolElapsed(p) {
       const end = p.endAt ? new Date(p.endAt).getTime() : Date.now();
@@ -362,37 +361,76 @@
     },
 
     /* Welfare: determine whether a check is due/overdue and record any missed checks. */
+    /* Welfare schedule for a shift, from the manager's settings:
+     *  - off, or
+     *  - fixed times (e.g. once at 02:00), or
+     *  - every N minutes, only inside an active window (e.g. 22:00–06:00).
+     * Returns the due times (ms) between clock-in and the shift end. */
+    welfareSchedule(shift) {
+      const s = db.settings();
+      if (!s.welfareEnabled || !shift || !shift.actualStart) return [];
+      const start = new Date(shift.actualStart).getTime();
+      const end = new Date(shift.actualEnd || shift.endAt).getTime();
+      const out = [];
+      if (s.welfareMode === 'times') {
+        const times = (s.welfareTimes || []).filter((t) => /^\d{2}:\d{2}$/.test(t));
+        for (let d = U.ymdAdd(U.ymd(new Date(start)), -1); d <= U.ymd(new Date(end)); d = U.ymdAdd(d, 1)) {
+          times.forEach((t) => { const x = U.combine(d, t).getTime(); if (x > start && x <= end) out.push(x); });
+        }
+      } else {
+        const iv = Math.max(10, s.welfareInterval || 60) * 60000;
+        const inWin = (x) => {
+          const ws = s.welfareWindowStart, we = s.welfareWindowEnd;
+          if (!ws || !we || ws === we) return true;
+          const p = U.parts(new Date(x)), hm = U.pad(p.hour) + ':' + U.pad(p.minute);
+          return ws < we ? hm >= ws && hm < we : hm >= ws || hm < we;
+        };
+        for (let x = start + iv; x <= end && out.length < 200; x += iv) if (inWin(x)) out.push(x);
+      }
+      return out.sort((a, b) => a - b);
+    },
+
     async evaluateWelfare(shift, now) {
       if (!shift || !shift.actualStart) return { state: 'none' };
-      now = now || new Date();
       const s = db.settings();
-      const interval = (shift.welfareFreq || s.welfareInterval) * 60000;
-      const grace = s.welfareGrace * 60000;
-      const limit = shift.actualEnd ? new Date(shift.actualEnd) : now;
-      const recs = db.where('welfareChecks', (w) => w.shiftId === shift.id).sort((a, b) => ((a.at || a.dueAt) < (b.at || b.dueAt) ? -1 : 1));
-      const anchorOf = () => {
-        let a = new Date(shift.actualStart).getTime();
-        recs.forEach((w) => { const t = new Date(w.status === 'Confirmed' ? w.at : w.dueAt).getTime(); if (t > a) a = t; });
-        return a;
-      };
-      let anchor = anchorOf();
-      let due = anchor + interval;
-      let guardLoop = 0;
-      while (limit.getTime() > due + grace && guardLoop++ < 50) {
-        const dueIso = new Date(due).toISOString();
-        if (!recs.some((w) => w.dueAt === dueIso)) {
-          const miss = { id: 'WEL-MISS-' + shift.id + '-' + dueIso.replace(/\D/g, '').slice(0, 12), shiftId: shift.id, guardId: shift.guardId, siteId: shift.siteId, dueAt: dueIso, at: null, status: 'Missed', gps: null, source: 'device' };
-          await db.put('welfareChecks', miss);
-          recs.push(miss);
-          await db.audit('Welfare check missed', { siteId: shift.siteId, user: 'System', role: 'system', subject: 'Due ' + U.fmtTime(dueIso), related: shift.id });
+      if (!s.welfareEnabled) return { state: 'off' };
+      now = now || new Date();
+      const t = now.getTime();
+      const grace = Math.max(1, s.welfareGrace || 15) * 60000;
+      const early = (s.welfareMode === 'times' ? 20 : Math.max(10, s.welfareInterval || 60)) * 60000;
+      const limit = shift.actualEnd ? new Date(shift.actualEnd).getTime() : t;
+      const recs = db.where('welfareChecks', (w) => w.shiftId === shift.id);
+      const confirmed = recs.filter((w) => w.status === 'Confirmed').map((w) => new Date(w.at).getTime());
+      const dues = SW.ops.welfareSchedule(shift);
+      const satisfied = (d) => confirmed.some((c) => c >= d - early && c <= d + grace);
+      let current = null, next = null;
+      for (const d of dues) {
+        if (satisfied(d)) continue;
+        if (limit > d + grace) {
+          const dueIso = new Date(d).toISOString();
+          if (!recs.some((w) => w.status === 'Missed' && w.dueAt === dueIso)) {
+            const miss = { id: 'WEL-MISS-' + shift.id + '-' + dueIso.replace(/\D/g, '').slice(0, 12), shiftId: shift.id, guardId: shift.guardId, siteId: shift.siteId, dueAt: dueIso, at: null, status: 'Missed', gps: null, source: 'device' };
+            await db.put('welfareChecks', miss);
+            recs.push(miss);
+            await db.audit('Welfare check missed', { siteId: shift.siteId, user: 'System', role: 'system', subject: 'Due ' + U.fmtTime(dueIso), related: shift.id });
+          }
+          continue;
         }
-        anchor = due;
-        due = anchor + interval;
+        if (t >= d - early && t <= d + grace && !current) current = d;
+        else if (d > t && !next) next = d;
       }
       if (shift.actualEnd) return { state: 'ended' };
-      const t = now.getTime();
-      if (t >= due) return { state: 'due', dueAt: new Date(due), overdueAt: new Date(due + grace) };
-      return { state: 'ok', nextAt: new Date(due) };
+      if (current && t >= current) return { state: 'due', dueAt: new Date(current), overdueAt: new Date(current + grace) };
+      if (current) return { state: 'soon', dueAt: new Date(current), nextAt: new Date(current) };
+      if (next) return { state: 'ok', nextAt: new Date(next) };
+      return { state: 'none-left' };
+    },
+
+    welfareSummary() {
+      const s = db.settings();
+      if (!s.welfareEnabled) return 'Welfare checks are switched off';
+      if (s.welfareMode === 'times') return 'Welfare check at ' + ((s.welfareTimes || []).join(', ') || '—');
+      return 'Every ' + s.welfareInterval + ' min' + (s.welfareWindowStart && s.welfareWindowEnd && s.welfareWindowStart !== s.welfareWindowEnd ? ', ' + s.welfareWindowStart + '–' + s.welfareWindowEnd : '');
     },
 
     async confirmWelfare(shift) {

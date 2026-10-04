@@ -447,7 +447,6 @@
       { label: 'Site', html: (x) => esc(Q.siteName(x.siteId)) },
       { label: 'Shift', html: (x) => esc(x.start) + ' – ' + esc(x.end) },
       { label: 'Patrols', html: (x) => 'Every ' + x.patrolFreq + ' min (' + Q.scheduledPatrols(x) + ')' },
-      { label: 'Welfare', html: (x) => 'Every ' + x.welfareFreq + ' min' },
       { label: 'Status', html: (x) => U.badge(x.status === 'Scheduled' && new Date(x.endAt) < now ? 'Not worked' : x.status, x.status === 'Scheduled' && new Date(x.endAt) < now ? 'red' : U.statusCls(x.status)) },
       { label: 'Clock in / out', html: (x) => (x.actualStart ? U.fmtTime(x.actualStart) : '—') + ' / ' + (x.actualEnd ? U.fmtTime(x.actualEnd) : '—') },
       { label: 'Data', html: src },
@@ -461,7 +460,6 @@
       '<label class="fld"><span>Start</span><input type="time" name="start" value="20:00"></label>' +
       '<label class="fld"><span>End</span><input type="time" name="end" value="08:00"></label>' +
       '<label class="fld"><span>Patrol every (min)</span><input type="number" name="patrolFreq" min="15" max="720" value="' + s.patrolFrequency + '"></label>' +
-      '<label class="fld"><span>Welfare every (min)</span><input type="number" name="welfareFreq" min="10" max="240" value="' + s.welfareInterval + '"></label>' +
       '<div class="fld fld-btn"><button class="btn btn-primary">Add shift</button></div>' +
       '</form><p class="muted">If the end time is earlier than the start time, the shift ends the next day.</p>') +
       card('Upcoming and current shifts', table(cols, upcoming, 'No upcoming shifts. Add one above.')) +
@@ -472,9 +470,8 @@
       if (!f.guardId) return U.toast('Add an active guard first.', 'error');
       if (!f.siteId) return U.toast('Add a site first.', 'error');
       if (!f.date || !f.start || !f.end) return U.toast('Enter date, start and end.', 'error');
-      const pf = +f.patrolFreq, wf = +f.welfareFreq;
+      const pf = +f.patrolFreq, wf = db.settings().welfareInterval || 60;
       if (!(pf >= 15 && pf <= 720)) return U.toast('Patrol frequency must be 15–720 minutes.', 'error');
-      if (!(wf >= 10 && wf <= 240)) return U.toast('Welfare frequency must be 10–240 minutes.', 'error');
       const st = U.combine(f.date, f.start);
       let en = U.combine(f.date, f.end);
       if (en <= st) en = U.combine(U.ymdAdd(f.date, 1), f.end);
@@ -787,6 +784,7 @@
   M.incidentDetail = incidentDetail;
 
   /* ---- Welfare ---- */
+  function timeChip(t) { return '<span class="tchip"><input type="time" value="' + esc(t) + '" aria-label="Check time"><button type="button" aria-label="Remove">✕</button></span>'; }
   VIEWS.welfare = function (v) {
     const s = db.settings();
     const f = M.filters.wel = M.filters.wel || { status: '' };
@@ -794,10 +792,16 @@
     const sos = db.all('sosEvents').slice().sort((a, b) => (a.at < b.at ? 1 : -1));
     v.innerHTML = alertsHtml(null, true) +
       card('Welfare check settings',
-        '<form id="wf-form" class="form-grid form-inline"><label class="fld"><span>Default interval (minutes)</span><input type="number" name="welfareInterval" min="10" max="240" value="' + s.welfareInterval + '"></label>' +
-        '<label class="fld"><span>Grace period before missed (minutes)</span><input type="number" name="welfareGrace" min="1" max="60" value="' + s.welfareGrace + '"></label>' +
-        '<div class="fld fld-btn"><button class="btn btn-primary">Save settings</button></div></form>' +
-        '<p class="muted">Each shift can set its own interval on the Shifts page. The guard app prompts the guard when a check is due. If it is not confirmed within the grace period it is recorded as missed and shown here. No SMS, email or call is sent — there is no notification service in this prototype.</p>') +
+        '<form id="wf-form" class="wf-form">' +
+        '<label class="switch"><input type="checkbox" name="welfareEnabled"' + (s.welfareEnabled ? ' checked' : '') + '><span></span><b>Welfare checks ' + (s.welfareEnabled ? 'ON' : 'OFF') + '</b></label>' +
+        '<div class="wf-opts"' + (s.welfareEnabled ? '' : ' hidden') + '>' +
+        '<div class="seg seg-sm wf-mode"><label><input type="radio" name="welfareMode" value="times"' + (s.welfareMode === 'times' ? ' checked' : '') + '><span>At set times</span></label><label><input type="radio" name="welfareMode" value="interval"' + (s.welfareMode !== 'times' ? ' checked' : '') + '><span>Every few minutes</span></label></div>' +
+        '<div class="wf-times"' + (s.welfareMode === 'times' ? '' : ' hidden') + '><span class="fld-lbl">Check times (UK time)</span><div id="wf-tlist">' + (s.welfareTimes || []).map((t) => timeChip(t)).join('') + '</div><button type="button" class="btn btn-sm btn-secondary" id="wf-addt">+ Add time</button><p class="muted">Example: one check at 02:00 during the night shift.</p></div>' +
+        '<div class="wf-int form-grid"' + (s.welfareMode === 'times' ? ' hidden' : '') + '><label class="fld"><span>Every (minutes)</span><input type="number" name="welfareInterval" min="10" max="480" value="' + s.welfareInterval + '"></label>' +
+        '<label class="fld"><span>Only between</span><input type="time" name="welfareWindowStart" value="' + esc(s.welfareWindowStart || '') + '"></label><label class="fld"><span>and</span><input type="time" name="welfareWindowEnd" value="' + esc(s.welfareWindowEnd || '') + '"></label><p class="muted span2">Leave both empty to check all shift long.</p></div>' +
+        '<label class="fld fld-narrow"><span>Allow (minutes) before it counts as missed</span><input type="number" name="welfareGrace" min="1" max="120" value="' + s.welfareGrace + '"></label>' +
+        '</div><div class="btn-row"><button class="btn btn-primary">Save welfare settings</button></div></form>' +
+        '<p class="muted">Applies to every guard straight away. The guard is prompted on their phone when a check is due; if not confirmed in time it is recorded as missed and an alert email is sent (if email alerts are set up).</p>') +
       card('Welfare checks', '<div class="filters"><label class="fld fld-inline"><span>Status</span><select id="wf-st">' + ['', 'Confirmed', 'Missed'].map((x) => opt(x, x || 'All', f.status)).join('') + '</select></label><span class="grow"></span><button class="btn btn-sm btn-secondary" id="wf-csv">Export CSV</button></div>' +
         table([
           { label: 'Date', html: (w) => U.fmtDate(w.at || w.dueAt) },
@@ -818,14 +822,26 @@
         { label: 'Status', html: (e) => U.badge(e.status, e.status === 'Active' ? 'red' : U.statusCls(e.status)) + (e.ackBy ? '<small class="blk">Ack ' + U.fmtTime(e.ackAt) + ' ' + esc(e.ackBy) + '</small>' : '') },
         { label: '', html: (e) => (e.status !== 'Resolved' ? (e.status === 'Active' ? '<button class="btn btn-sm btn-secondary" data-sos="' + esc(e.id) + '" data-st="Acknowledged">Acknowledge</button> ' : '') + '<button class="btn btn-sm btn-secondary" data-sos="' + esc(e.id) + '" data-st="Resolved">Resolve</button>' : '') },
       ], sos, 'No SOS events.'));
-    U.$('#wf-form', v).onsubmit = async (e) => {
+    const wf = U.$('#wf-form', v);
+    wf.welfareEnabled.onchange = () => { wf.querySelector('.wf-opts').hidden = !wf.welfareEnabled.checked; wf.querySelector('.switch b').textContent = 'Welfare checks ' + (wf.welfareEnabled.checked ? 'ON' : 'OFF'); };
+    wf.querySelectorAll('[name=welfareMode]').forEach((r) => (r.onchange = () => { const t = wf.querySelector('[name=welfareMode]:checked').value === 'times'; wf.querySelector('.wf-times').hidden = !t; wf.querySelector('.wf-int').hidden = t; }));
+    const bindChips = () => wf.querySelectorAll('.tchip button').forEach((b) => (b.onclick = () => b.parentNode.remove()));
+    bindChips();
+    U.$('#wf-addt', v).onclick = () => { U.$('#wf-tlist', v).insertAdjacentHTML('beforeend', timeChip('03:00')); bindChips(); };
+    wf.onsubmit = async (e) => {
       e.preventDefault();
-      const fd = formData(e.target);
+      const fd = formData(wf);
+      const mode = wf.querySelector('[name=welfareMode]:checked').value;
+      const times = Array.from(wf.querySelectorAll('.tchip input')).map((i) => i.value).filter((t) => /^\d{2}:\d{2}$/.test(t));
+      const uniq = Array.from(new Set(times)).sort();
       const wi = +fd.welfareInterval, wg = +fd.welfareGrace;
-      if (!(wi >= 10 && wi <= 240) || !(wg >= 1 && wg <= 60)) return U.toast('Interval 10–240 and grace 1–60 minutes.', 'error');
-      await db.saveSettings({ welfareInterval: wi, welfareGrace: wg });
-      await db.audit('Welfare settings changed', { subject: 'Every ' + wi + ' min, grace ' + wg + ' min' });
-      U.toast('Welfare settings saved', 'ok');
+      if (fd.welfareEnabled && mode === 'times' && !uniq.length) return U.toast('Add at least one check time, or switch welfare checks off.', 'error');
+      if (fd.welfareEnabled && mode === 'interval' && !(wi >= 10 && wi <= 480)) return U.toast('Interval must be 10–480 minutes.', 'error');
+      if (!(wg >= 1 && wg <= 120)) return U.toast('Allowance must be 1–120 minutes.', 'error');
+      await db.saveSettings({ welfareEnabled: !!fd.welfareEnabled, welfareMode: mode, welfareTimes: uniq, welfareInterval: wi || 60, welfareWindowStart: fd.welfareWindowStart || '', welfareWindowEnd: fd.welfareWindowEnd || '', welfareGrace: wg });
+      await db.audit('Welfare settings changed', { subject: SW.ops.welfareSummary() });
+      U.toast('Saved: ' + SW.ops.welfareSummary(), 'ok');
+      M.render();
     };
     U.$('#wf-st', v).onchange = (e) => { f.status = e.target.value; M.render(); };
     U.$('#wf-csv', v).onclick = () => SW.exports.welfare(rows);
@@ -847,9 +863,46 @@
   M.defaultReportDate = defaultReportDate;
 
   /* ---- Client portal preview ---- */
+  const CLIENT_OPTS = [
+    ['status', 'Current guard status', 'Who is on duty, since when, last checkpoint'],
+    ['kpis', 'Summary numbers', 'Patrol and checkpoint totals for the last 7 days'],
+    ['patrols', 'Patrol history', 'List of recent patrols'],
+    ['missed', 'Missed checkpoints', 'Incomplete patrols with the guard\u2019s explanation'],
+    ['incidents', 'Incident list', 'Incident ID, date, type, severity and status'],
+    ['incidentDetails', 'Full incident details', 'Descriptions, witness and location'],
+    ['welfare', 'Welfare checks', 'Confirmed and missed welfare checks'],
+    ['sos', 'SOS alerts', 'Active SOS banners'],
+    ['attendance', 'Late starts & missed clock-ins', 'Shown inside reports'],
+    ['reports', 'Reports', 'View, print and download reports'],
+    ['guardNames', 'Guard names', 'Otherwise shown as \u201cSecurity officer\u201d'],
+  ];
+  const CLIENT_DEFAULT = { status: true, kpis: true, patrols: true, missed: false, incidents: true, incidentDetails: false, welfare: false, sos: false, attendance: false, reports: true, guardNames: true };
+  M.clientView = () => Object.assign({}, CLIENT_DEFAULT, db.settings().clientView || {});
+  function hiddenStores(cv) {
+    const h = [];
+    if (!cv.incidents) h.push('incidents');
+    if (!cv.welfare) h.push('welfareChecks');
+    if (!cv.sos) h.push('sosEvents');
+    if (!cv.status) h.push('attendance');
+    if (!cv.patrols && !cv.missed && !cv.reports && !cv.kpis) h.push('patrols', 'checkpointScans');
+    return h;
+  }
   VIEWS.client = function (v) {
-    v.innerHTML = '<div class="note-box">This is a preview of what a client sees when signing in with the demo <b>client</b> login. Clients can view but not change anything.</div><div id="cp-host"></div>';
+    const cv = M.clientView();
+    v.innerHTML = card('What clients can see', '<form id="cv-form"><div class="cv-grid">' + CLIENT_OPTS.map((o) =>
+        '<label class="cv-opt"><span class="switch"><input type="checkbox" name="' + o[0] + '"' + (cv[o[0]] ? ' checked' : '') + '><span></span></span><span><b>' + esc(o[1]) + '</b><small>' + esc(o[2]) + '</small></span></label>').join('') +
+        '</div><div class="btn-row"><button class="btn btn-primary">Save client settings</button></div>' +
+        '<p class="muted">Hidden information is blocked by the server, not just hidden on screen' + (SW.remote.enabled ? '' : ' (with the server version)') + '. Changes apply to client logins within a minute.</p></form>') +
+      '<div class="note-box">Preview — this is exactly what a client sees.</div><div id="cp-host" class="cp-preview"></div>';
     SW.client.render(U.$('#cp-host', v), null, true);
+    const f = U.$('#cv-form', v);
+    f.querySelectorAll('input').forEach((i) => (i.onchange = async () => {
+      const nv = {}; CLIENT_OPTS.forEach((o) => (nv[o[0]] = f[o[0]].checked));
+      if (!nv.incidents) { nv.incidentDetails = false; f.incidentDetails.checked = false; }
+      await db.saveSettings({ clientView: nv, clientHidden: hiddenStores(nv) });
+      SW.client.render(U.$('#cp-host', v), null, true);
+    }));
+    f.onsubmit = async (e) => { e.preventDefault(); await db.audit('Client portal settings changed'); U.toast('Client settings saved', 'ok'); if (SW.app.syncNow) SW.app.syncNow(); };
   };
 
   /* ---- Settings ---- */
@@ -968,10 +1021,15 @@
     U.$('#pop-on', host).onclick = async () => { await SW.app.enableAlerts(); renderMail(host); };
   }
   async function renderLoginsRemote(host) {
-    let list;
+    let list, pending = [];
     try { list = await SW.remote.listLogins(); }
     catch (e) { host.innerHTML = '<p class="red-text">Could not load logins: ' + esc(e.message) + (navigator.onLine ? '' : ' (you are offline)') + '</p>'; return; }
-    host.innerHTML = table([
+    try { pending = (await SW.remote.pendingSignups()) || []; } catch (_) { pending = []; }
+    list = (list || []).filter((u) => u.role !== 'pending');
+    const pendHtml = pending.length ? '<div class="pending"><h3>Account requests waiting for approval (' + pending.length + ')</h3>' + pending.map((p) =>
+        '<div class="pend-row"><div><b>' + esc(p.display_name) + '</b> <span class="muted">' + esc(p.username) + ' · ' + esc(p.email) + '</span><small>' + U.fmtDateTime(p.requested_at) + (p.note ? ' — ' + esc(p.note) : '') + '</small></div>' +
+        '<button class="btn btn-sm btn-primary" data-ap="' + esc(p.username) + '" data-nm="' + esc(p.display_name) + '">Approve</button><button class="btn btn-sm btn-danger-ghost" data-rj="' + esc(p.username) + '">Reject</button></div>').join('') + '</div>' : '';
+    host.innerHTML = pendHtml + table([
         { label: 'Username', html: (u) => '<b>' + esc(u.username) + '</b>' },
         { label: 'Name', html: (u) => esc(u.display_name || '') },
         { label: 'Role', html: (u) => esc(u.role) + (u.guard_id ? '<small class="blk">' + esc(Q.guardName(u.guard_id)) + '</small>' : '') },
@@ -981,6 +1039,24 @@
       ], list || [], 'No logins.') +
       '<div class="btn-row"><button class="btn btn-secondary" id="lg-add">Add login</button></div>' +
       '<p class="muted">Changes take effect straight away on every device. With an email saved, people can use "Forgot password?" on the sign-in screen and receive login details by email (needs the Gmail sender — see Email notifications).</p>';
+    host.querySelectorAll('[data-ap]').forEach((b) => (b.onclick = async () => {
+      const r = await U.modal({ title: 'Approve ' + b.dataset.nm,
+        body: '<div class="form-grid"><label class="fld"><span>Role</span><select name="role"><option value="guard">Guard</option><option value="client">Client (read only)</option><option value="manager">Manager</option></select></label>' +
+          '<label class="fld"><span>Guard record (for guards)</span><select name="guardId">' + opt('', '—') + db.all('guards').map((g) => opt(g.id, g.name)).join('') + '</select></label></div>' +
+          '<p class="muted">For a new guard, first add them on the Guards page (SIA licence details), then approve here and pick their record.</p>',
+        actions: [{ label: 'Cancel', value: null }, { label: 'Approve', cls: 'btn-primary', onClick: async (m) => {
+          const role = m.querySelector('[name=role]').value, gid = m.querySelector('[name=guardId]').value;
+          if (role === 'guard' && !gid) { U.toast('Choose the guard record (add the guard first if needed).', 'error'); return false; }
+          try { await SW.remote.approveSignup(b.dataset.ap, role, gid, role === 'manager' ? [] : db.all('sites').map((x) => x.id)); } catch (e) { U.toast(e.message, 'error'); return false; }
+          return true; } }] });
+      if (r) { await db.audit('Account request approved', { subject: b.dataset.ap }); U.toast('Approved — they have been emailed', 'ok'); renderLoginsRemote(host); }
+    }));
+    host.querySelectorAll('[data-rj]').forEach((b) => (b.onclick = async () => {
+      if (!(await U.confirm('Reject request?', 'Reject and delete the account request from ' + b.dataset.rj + '?', 'Reject', true))) return;
+      try { await SW.remote.rejectSignup(b.dataset.rj); } catch (e) { return U.toast(e.message, 'error'); }
+      await db.audit('Account request rejected', { subject: b.dataset.rj });
+      renderLoginsRemote(host);
+    }));
     U.$('#lg-add', host).onclick = async () => {
       const pw0 = genPassword();
       const res = await U.modal({
@@ -1112,36 +1188,64 @@
       const sites = db.all('sites').filter((s) => !siteIds || !siteIds.length || siteIds.includes(s.id));
       if (!sites.length) { host.innerHTML = '<div class="empty"><p>No sites are linked to this client account.</p></div>'; return; }
       if (!sites.some((s) => s.id === SW.client.site)) SW.client.site = sites[0].id;
+      const cv = M.clientView();
       const sid = SW.client.site;
       const scope = [sid];
       const st = M.status(scope);
       const recentPatrols = M.filterPatrols({}, scope).slice(0, 15);
       const missed = db.where('patrols', (p) => p.siteId === sid && p.status === 'Incomplete').sort((a, b) => (a.endAt < b.endAt ? 1 : -1)).slice(0, 10);
       const inc = db.where('incidents', (i) => i.siteId === sid).sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 15);
-      const wel = db.where('welfareChecks', (w) => w.siteId === sid).sort((a, b) => ((a.at || a.dueAt) < (b.at || b.dueAt) ? 1 : -1));
-      const repDate = SW.client.date || M.defaultReportDate();
+      const wel = db.where('welfareChecks', (w) => w.siteId === sid);
       const since = Date.now() - 7 * 86400000;
       const wk = wel.filter((w) => new Date(w.at || w.dueAt).getTime() > since);
-      host.innerHTML =
-        (sites.length > 1 ? '<div class="toolbar"><label class="fld fld-inline"><span>Site</span><select id="cl-site">' + sites.map((s) => opt(s.id, s.name, sid)).join('') + '</select></label></div>' : '') +
+      const R7 = SW.reports.compute(sid, U.ymdAdd(U.today(), -6), U.today());
+      const gname = (id) => (cv.guardNames ? Q.guardName(id) : 'Security officer');
+      const tiles = [];
+      if (cv.status) tiles.push(['Guard on site', st.sh ? 'Yes' : 'No', st.sh ? 'since ' + U.fmtTime(st.sh.actualStart) : 'no one on duty', st.sh ? '#188A52' : '#8A97B4']);
+      if (cv.kpis) {
+        tiles.push(['Patrols (7 days)', R7.done + ' / ' + R7.schedPatrols, (R7.schedPatrols ? Math.round((R7.done / R7.schedPatrols) * 100) + '% completed' : 'no patrols scheduled'), '#2F6FE4']);
+        tiles.push(['Checkpoints (7 days)', String(R7.scans.length), 'verified', '#2F6FE4']);
+        if (cv.incidents) tiles.push(['Incidents (7 days)', String(R7.incidents.length), R7.sev('High') + R7.sev('Critical') + ' high or critical', R7.sev('High') + R7.sev('Critical') ? '#C8293A' : '#188A52']);
+        if (cv.welfare) tiles.push(['Welfare checks (7 days)', wk.filter((w) => w.status === 'Confirmed').length + ' / ' + wk.length, wk.some((w) => w.status === 'Missed') ? wk.filter((w) => w.status === 'Missed').length + ' missed' : 'none missed', '#188A52']);
+      }
+      let html = (sites.length > 1 ? '<div class="toolbar"><label class="fld fld-inline"><span>Site</span><select id="cl-site">' + sites.map((s) => opt(s.id, s.name, sid)).join('') + '</select></label></div>' : '') +
         '<h2 class="c-h">' + esc(Q.siteName(sid)) + '</h2>' +
-        (preview ? '' : '<div class="note-box">Simulated client access for demonstration. This portal reads records stored in this browser and is not secure multi-user authentication.</div>') +
-        alertsHtml(scope, false) + kpis(st) +
-        '<div class="grid-2">' + card('Current guard status', liveStatusBlock(st)) +
-        card('Welfare-check status (last 7 days)', '<div class="mini-stats"><div><b>' + wk.filter((w) => w.status === 'Confirmed').length + '</b><span>confirmed</span></div><div><b class="' + (wk.some((w) => w.status === 'Missed') ? 'red-text' : '') + '">' + wk.filter((w) => w.status === 'Missed').length + '</b><span>missed</span></div><div><b>' + (st.lastWel ? U.fmtTime(st.lastWel.at) : '—') + '</b><span>last confirmed</span></div></div>') + '</div>' +
-        card('Patrol history', M.patrolTable(recentPatrols)) +
-        card('Missed checkpoints', M.table([
+        ((cv.sos || cv.welfare || cv.missed) ? alertsHtml(scope, false) : '') +
+        (tiles.length ? '<div class="ctiles">' + tiles.map((t) => '<div class="ctile" style="--tc:' + t[3] + '"><span>' + esc(t[0]) + '</span><b>' + t[1] + '</b><small>' + esc(t[2]) + '</small></div>').join('') + '</div>' : '');
+      if (cv.status) {
+        const cp = st.lastScan ? db.get('checkpoints', st.lastScan.checkpointId) : null;
+        html += card('Current guard status', st.sh
+          ? '<dl class="live-dl"><div><dt>Guard</dt><dd>' + esc(gname(st.sh.guardId)) + '</dd></div><div><dt>On duty since</dt><dd>' + U.fmtTime(st.sh.actualStart) + '</dd></div><div><dt>Shift</dt><dd>' + esc(st.sh.start + ' – ' + st.sh.end) + '</dd></div><div><dt>Last checkpoint</dt><dd>' + (cp ? esc(cp.name) + ' at ' + U.fmtTime(st.lastScan.at) : '—') + '</dd></div></dl>'
+          : '<p>No guard is on duty at the moment.</p>');
+      }
+      if (cv.patrols) html += card('Patrol history', M.table([
+          { label: 'Date', html: (p) => U.fmtShortDate(p.startAt) },
+          { label: 'Patrol', html: (p) => esc(Q.routeName(p.routeId)) },
+          { label: 'Start', html: (p) => U.fmtTime(p.startAt) },
+          { label: 'End', html: (p) => (p.endAt ? U.fmtTime(p.endAt) : '—') },
+          { label: 'Checkpoints', html: (p) => (p.endAt ? p.verified + '/' + p.total : 'in progress') },
+          { label: 'Status', html: (p) => U.badge(p.status, U.statusCls(p.status)) },
+        ].concat(cv.guardNames ? [{ label: 'Guard', html: (p) => esc(gname(p.guardId)) }] : []), recentPatrols, 'No patrols yet.'));
+      if (cv.missed) html += card('Missed checkpoints', M.table([
           { label: 'Date', html: (p) => U.fmtShortDate(p.startAt) },
           { label: 'Patrol', html: (p) => esc(p.id) },
-          { label: 'Missed', html: (p) => esc(p.missed.map((m) => m.name).join(', ')) },
+          { label: 'Missed', html: (p) => esc((p.missed || []).map((m) => m.name).join(', ')) },
           { label: 'Guard explanation', html: (p) => esc(p.explanation || '—') },
-        ], missed, 'No missed checkpoints recorded.')) +
-        card('Incidents', M.incidentTable(inc)) +
-        card('Reports', '<div id="cl-rep"></div>');
+        ], missed, 'No missed checkpoints recorded.'));
+      if (cv.welfare) html += card('Welfare checks (last 7 days)', '<div class="mini-stats"><div><b>' + wk.filter((w) => w.status === 'Confirmed').length + '</b><span>confirmed</span></div><div><b class="' + (wk.some((w) => w.status === 'Missed') ? 'red-text' : '') + '">' + wk.filter((w) => w.status === 'Missed').length + '</b><span>missed</span></div></div>');
+      if (cv.incidents) html += card('Incidents', M.table([
+          { label: 'Incident', html: (r) => (cv.incidentDetails ? '<a href="#" data-inc="' + esc(r.id) + '"><b>' + esc(r.id) + '</b></a>' : '<b>' + esc(r.id) + '</b>') },
+          { label: 'Date', html: (r) => U.fmtDateTime(r.at) },
+          { label: 'Type', html: (r) => esc(r.type) },
+          { label: 'Severity', html: (r) => U.badge(r.severity, U.statusCls(r.severity)) },
+          { label: 'Status', html: (r) => U.badge(r.status, U.statusCls(r.status)) },
+        ].concat(cv.incidentDetails ? [{ label: 'Description', html: (r) => '<span class="clip">' + esc(r.description) + '</span>' }] : []), inc, 'No incidents reported.'));
+      if (cv.reports) html += card('Reports', '<div id="cl-rep"></div>');
+      if (!tiles.length && !cv.status && !cv.patrols && !cv.missed && !cv.welfare && !cv.incidents && !cv.reports) html += '<div class="empty"><p>Nothing is shared on this portal yet.</p></div>';
+      host.innerHTML = html;
       const ss = U.$('#cl-site', host); if (ss) ss.onchange = (e) => { SW.client.site = e.target.value; SW.client.render(host, siteIds, preview); };
-      SW.reports.panel(U.$('#cl-rep', host), { siteIds: [sid] });
-      M.bindInc(host, false);
-      M.bindPatrolRows(host);
+      if (cv.reports) SW.reports.panel(U.$('#cl-rep', host), { siteIds: [sid], client: true });
+      if (cv.incidentDetails) M.bindInc(host, false);
     },
   };
 

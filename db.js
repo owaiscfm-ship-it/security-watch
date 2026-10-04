@@ -146,7 +146,7 @@
     /* ---- Settings ---- */
     settings() {
       return Object.assign(
-        { id: 'app', welfareInterval: 60, welfareGrace: 10, patrolFrequency: 120, gpsRadius: 75, licenceWarnDays: 60, demoMode: false, companyName: 'Crystal Facilities Management Ltd' },
+        { id: 'app', welfareEnabled: true, welfareMode: 'times', welfareTimes: ['02:00'], welfareWindowStart: '22:00', welfareWindowEnd: '06:00', welfareInterval: 60, welfareGrace: 20, patrolFrequency: 120, gpsRadius: 75, licenceWarnDays: 60, demoMode: false, companyName: 'Crystal Facilities Management Ltd' },
         db.get('settings', 'app') || {}
       );
     },

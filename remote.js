@@ -75,7 +75,11 @@
 
   /* ---------- sign in / out ---------- */
   R.login = async function (username, password) {
-    const email = username.includes('@') ? username : username + '@' + R.domain;
+    let email = username.includes('@') ? username : username + '@' + R.domain;
+    if (username.includes('@') && !username.endsWith('@' + R.domain) && navigator.onLine) {
+      // signing in with an email address: find the SecureWatch username for it
+      try { const u = await anonRpc('sw_username_for_email', { p_email: username }); if (u) email = u + '@' + R.domain; } catch (_) { /* fall back to the email itself */ }
+    }
     let t;
     try { t = await authCall('token?grant_type=password', { email, password }); }
     catch (e) {
@@ -85,6 +89,7 @@
     store(t);
     const p = await R.rpc('sw_my_profile');
     if (!p || !p.role) { saveAuth(null); throw new Error('This login has no SecureWatch profile. Ask your manager.'); }
+    if (p.role === 'pending') { await R.logout(); throw new Error('Your account is waiting for a manager to approve it. You will get an email when it is ready.'); }
     // a different person on this device: clear the previous person's cached data
     const last = localStorage.getItem(LAST_USER_KEY);
     if (last && last !== p.user_id) { await SW.db.clearAll(); localStorage.removeItem(CURSOR_KEY); }
@@ -164,6 +169,10 @@
     }
     if (max) localStorage.setItem(CURSOR_KEY, max);
     if (SW.session && SW.session.role === 'client') {
+      const set = SW.db.settings();
+      const hidden = (set.clientHidden || []).concat(set.clientView && set.clientView.guardNames === false ? ['guards'] : []);
+      for (const st of hidden) for (const r of SW.db.all(st).slice()) { await SW.db.removeRaw(st, r.id); changed++; }
+      if (set.clientView && set.clientView.guardNames === false) return changed;
       try {
         const names = await R.rpc('sw_guard_names');
         for (const g of names || []) if (!SW.db.get('guards', g.id)) { await SW.db.putRaw('guards', { id: g.id, name: g.name, status: 'Active' }); changed++; }
@@ -213,6 +222,10 @@
     if (!res.ok) throw new Error((t && (t.message || t.hint)) || ('Server error ' + res.status));
     return t;
   }
+  R.signup = (a) => anonRpc('sw_signup', a);
+  R.pendingSignups = () => R.rpc('sw_pending');
+  R.approveSignup = (username, role, guard, sites) => R.rpc('sw_approve', { p_username: username, p_role: role, p_guard: guard || null, p_sites: sites || [] });
+  R.rejectSignup = (username) => R.rpc('sw_reject', { p_username: username });
   R.requestReset = (username) => anonRpc('sw_request_reset', { p_username: username });
   R.resetWithCode = (username, code, password) => anonRpc('sw_reset_with_code', { p_username: username, p_code: code, p_password: password });
 

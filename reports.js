@@ -88,12 +88,33 @@
       '<p class="rp-legend"><i style="background:#188A52"></i>95%+ <i style="background:#E0A100"></i>70–94% <i style="background:#C8293A"></i>under 70% <i style="background:#D8E0EC"></i>no shift</p></div>';
   }
 
+  const SECTIONS = [
+    ['kpis', 'Summary numbers'], ['chart', 'Patrol chart'], ['guards', 'Guard summary table'], ['days', 'Day-by-day table'],
+    ['incidents', 'Incidents'], ['attendance', 'Attendance issues (late / no clock-in)'], ['incomplete', 'Incomplete patrols'],
+    ['welfare', 'Missed welfare checks'], ['sos', 'SOS alerts'],
+  ];
+  function sections(forClient) {
+    const s = Object.assign({ kpis: true, chart: true, guards: true, days: true, incidents: true, attendance: true, incomplete: true, welfare: true, sos: true }, db.settings().reportSections || {});
+    const isClient = forClient || (SW.session && SW.session.role === 'client');
+    if (isClient && SW.manager && SW.manager.clientView) {
+      const cv = SW.manager.clientView();
+      if (!cv.incidents) s.incidents = false;
+      if (!cv.welfare) s.welfare = false;
+      if (!cv.missed) s.incomplete = false;
+      if (!cv.sos) s.sos = false;
+      if (!cv.attendance) s.attendance = false;
+      if (!cv.guardNames) s.guards = false;
+    }
+    return s;
+  }
   SW.reports = SW.reports || {};
+  SW.reports.SECTIONS = SECTIONS;
   SW.reports.range = range;
   SW.reports.compute = compute;
 
   /* Full printable report HTML */
-  SW.reports.period = function (siteId, r, guardId) {
+  SW.reports.period = function (siteId, r, guardId, forClient) {
+    const S = sections(forClient);
     const site = Q.site(siteId);
     if (!site) return '<div class="empty"><p>Choose a site.</p></div>';
     const R = compute(siteId, r.from, r.to, guardId);
@@ -105,22 +126,22 @@
     return '<article class="report">' +
       '<header class="rp-head"><div><p class="rp-brand">SECUREWATCH</p><h1>' + esc(r.title) + '</h1></div><div class="rp-co">' + esc(s.companyName) + '<br>Generated ' + U.fmtDateTime(new Date()) + '</div></header>' +
       '<table class="rp-kv">' + row('Site', esc(site.name)) + row('Client', esc(site.client || '—')) + row('Period', esc(r.name) + (multiDay ? ' <span class="muted">(' + label(r.from, { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' to ' + label(r.to, { day: '2-digit', month: '2-digit', year: 'numeric' }) + ')</span>' : '')) + (guardId ? row('Guard', esc(Q.guardName(guardId))) : '') + '</table>' +
-      '<div class="rp-kpis">' +
+      (S.kpis ? '<div class="rp-kpis">' +
       '<div><span>Shifts worked</span><b>' + R.shifts.filter((x) => x.actualStart).length + ' / ' + R.shifts.length + '</b></div>' +
       '<div><span>Hours on site</span><b>' + R.hours.toFixed(1) + '</b></div>' +
       '<div><span>Patrols completed</span><b>' + R.done + ' / ' + R.schedPatrols + '</b><em>' + pct(R.done, R.schedPatrols) + '</em></div>' +
       '<div><span>Checkpoints verified</span><b>' + R.scans.length + '</b><em>' + (R.missedCp ? R.missedCp + ' missed' : 'none missed') + '</em></div>' +
       '<div><span>Incidents</span><b>' + R.incidents.length + '</b><em>' + R.sev('Critical') + ' critical · ' + R.sev('High') + ' high</em></div>' +
-      '<div><span>Welfare checks</span><b>' + R.welOk + ' / ' + (R.welOk + R.welMiss) + '</b><em>' + (R.welMiss ? R.welMiss + ' missed' : 'none missed') + '</em></div>' +
-      '</div>' +
-      (multiDay ? barChart(R.perDay) : '') +
-      '<h2>Guards</h2>' + tbl(['Guard', 'Shifts', 'Hours', 'Late starts', 'No clock-in', 'Patrols', 'Incidents', 'Welfare missed'], R.perGuard.map((G) => [esc(Q.guardName(G.id)), G.worked + '/' + G.shifts, G.hours.toFixed(1), G.late, G.missedShifts, G.patrols + '/' + G.sched + ' (' + pct(G.patrols, G.sched) + ')', G.incidents, G.welMiss]), 'No shifts in this period.') +
-      (multiDay ? '<h2>Day by day</h2>' + tbl(['Date', 'Shifts', 'Patrols', 'Completion', 'Incidents', 'Welfare missed'], R.perDay.filter((d) => d.shifts).map((d) => [label(d.date, { weekday: 'short', day: '2-digit', month: 'short' }), d.worked + '/' + d.shifts, d.patrols + '/' + d.sched, pct(d.patrols, d.sched), d.incidents, d.welMiss])) : '') +
-      '<h2>Incidents</h2>' + tbl(['Incident', 'When', 'Type', 'Severity', 'Status', 'Guard', 'Summary'], R.incidents.map((i) => [esc(i.id), dt(i.at), esc(i.type), esc(i.severity), esc(i.status), esc(Q.guardName(i.guardId)), esc(String(i.description || '').slice(0, 160)) + (String(i.description || '').length > 160 ? '…' : '')]), 'No incidents reported.') +
-      '<h2>Attendance issues</h2>' + tbl(['Date', 'Guard', 'Rota', 'Issue'], R.issues.map((x) => [label(x.s.date, { weekday: 'short', day: '2-digit', month: 'short' }), esc(Q.guardName(x.s.guardId)), esc(x.s.start + '–' + x.s.end), esc(x.text)]), 'No attendance issues.') +
-      '<h2>Incomplete patrols</h2>' + tbl(['Patrol', 'When', 'Guard', 'Missed', 'Explanation'], R.incomplete.map((p) => [esc(p.id), dt(p.startAt), esc(Q.guardName(p.guardId)), esc((p.missed || []).map((m) => m.name).join(', ')), esc(p.explanation || '—')]), 'None.') +
-      '<h2>Missed welfare checks</h2>' + tbl(['Due', 'Guard'], R.welfare.filter((w) => w.status === 'Missed').map((w) => [dt(w.dueAt), esc(Q.guardName(w.guardId))]), 'None.') +
-      (R.sos.length ? '<h2>SOS alerts</h2>' + tbl(['When', 'Guard', 'Status'], R.sos.map((e) => [dt(e.at), esc(Q.guardName(e.guardId)), esc(e.status)])) : '') +
+      (S.welfare ? '<div><span>Welfare checks</span><b>' + R.welOk + ' / ' + (R.welOk + R.welMiss) + '</b><em>' + (R.welMiss ? R.welMiss + ' missed' : 'none missed') + '</em></div>' : '') +
+      '</div>' : '') +
+      (multiDay && S.chart ? barChart(R.perDay) : '') +
+      (!S.guards ? '' : '<h2>Guards</h2>' + tbl(['Guard', 'Shifts', 'Hours', 'Late starts', 'No clock-in', 'Patrols', 'Incidents', 'Welfare missed'], R.perGuard.map((G) => [esc(Q.guardName(G.id)), G.worked + '/' + G.shifts, G.hours.toFixed(1), G.late, G.missedShifts, G.patrols + '/' + G.sched + ' (' + pct(G.patrols, G.sched) + ')', G.incidents, G.welMiss]), 'No shifts in this period.')) +
+      (multiDay && S.days ? '<h2>Day by day</h2>' + tbl(['Date', 'Shifts', 'Patrols', 'Completion', 'Incidents', 'Welfare missed'], R.perDay.filter((d) => d.shifts).map((d) => [label(d.date, { weekday: 'short', day: '2-digit', month: 'short' }), d.worked + '/' + d.shifts, d.patrols + '/' + d.sched, pct(d.patrols, d.sched), d.incidents, d.welMiss])) : '') +
+      (!S.incidents ? '' : '<h2>Incidents</h2>' + tbl(['Incident', 'When', 'Type', 'Severity', 'Status', 'Guard', 'Summary'], R.incidents.map((i) => [esc(i.id), dt(i.at), esc(i.type), esc(i.severity), esc(i.status), esc(Q.guardName(i.guardId)), esc(String(i.description || '').slice(0, 160)) + (String(i.description || '').length > 160 ? '…' : '')]), 'No incidents reported.')) +
+      (!S.attendance ? '' : '<h2>Attendance issues</h2>' + tbl(['Date', 'Guard', 'Rota', 'Issue'], R.issues.map((x) => [label(x.s.date, { weekday: 'short', day: '2-digit', month: 'short' }), esc(Q.guardName(x.s.guardId)), esc(x.s.start + '–' + x.s.end), esc(x.text)]), 'No attendance issues.')) +
+      (!S.incomplete ? '' : '<h2>Incomplete patrols</h2>' + tbl(['Patrol', 'When', 'Guard', 'Missed', 'Explanation'], R.incomplete.map((p) => [esc(p.id), dt(p.startAt), esc(Q.guardName(p.guardId)), esc((p.missed || []).map((m) => m.name).join(', ')), esc(p.explanation || '—')]), 'None.')) +
+      (!S.welfare ? '' : '<h2>Missed welfare checks</h2>' + tbl(['Due', 'Guard'], R.welfare.filter((w) => w.status === 'Missed').map((w) => [dt(w.dueAt), esc(Q.guardName(w.guardId))]), 'None.')) +
+      (S.sos && R.sos.length ? '<h2>SOS alerts</h2>' + tbl(['When', 'Guard', 'Status'], R.sos.map((e) => [dt(e.at), esc(Q.guardName(e.guardId)), esc(e.status)])) : '') +
       '<footer class="rp-foot">Generated by SecureWatch (by Syed Owais). Times are UK time. GPS positions come from the guard\u2019s phone and depend on its accuracy.</footer>' +
       '</article>';
   };
@@ -161,9 +182,9 @@
         : '<div class="rp-nav"><button class="icon-btn" id="rp-prev" aria-label="Previous">‹</button><label class="fld fld-inline"><span>' + (st.type === 'day' ? 'Shift date' : st.type === 'week' ? 'Any day in the week' : 'Any day in the month') + '</span><input type="date" id="rp-anchor" value="' + esc(st.anchor) + '"></label><button class="icon-btn" id="rp-next" aria-label="Next">›</button></div>') +
       (sites.length > 1 ? '<label class="fld fld-inline"><span>Site</span><select id="rp-site">' + sites.map((s) => o(s.id, s.name, st.site)).join('') + '</select></label>' : '') +
       (opts.guards ? '<label class="fld fld-inline"><span>Guard</span><select id="rp-guard">' + o('', 'All guards', st.guard) + db.all('guards').map((g) => o(g.id, g.name, st.guard)).join('') + '</select></label>' : '') +
-      '<span class="grow"></span><button class="btn btn-secondary" id="rp-csv">Download CSV</button><button class="btn btn-secondary" id="rp-print">Print</button><button class="btn btn-primary" id="rp-pdf">Download PDF</button></div>' +
+      '<span class="grow"></span>' + (SW.session && SW.session.role === 'manager' && !opts.client ? '<button class="btn btn-ghost" id="rp-cust">⚙ Customise</button>' : '') + '<button class="btn btn-secondary" id="rp-csv">Download CSV</button><button class="btn btn-secondary" id="rp-print">Print</button><button class="btn btn-primary" id="rp-pdf">Download PDF</button></div>' +
       '<p class="muted rp-hint">' + esc(r.name) + ' — shifts that start in this period. "Download PDF" opens the print window: choose <b>Save as PDF</b>.</p>' +
-      '<div class="report-preview">' + SW.reports.period(st.site, r, opts.guards ? st.guard : '') + '</div>';
+      '<div class="report-preview">' + SW.reports.period(st.site, r, opts.guards ? st.guard : '', opts.client) + '</div>';
     const rerender = () => SW.reports.panel(host, opts);
     host.querySelectorAll('[name=rp-type]').forEach((x) => (x.onchange = () => { st.type = x.value; rerender(); }));
     const a = host.querySelector('#rp-anchor'); if (a) a.onchange = () => { st.anchor = a.value || U.today(); rerender(); };
@@ -174,7 +195,17 @@
     const si = host.querySelector('#rp-site'); if (si) si.onchange = () => { st.site = si.value; rerender(); };
     const gu = host.querySelector('#rp-guard'); if (gu) gu.onchange = () => { st.guard = gu.value; rerender(); };
     const cur = () => range(st.type, st.anchor, st.from, st.to);
-    const print = () => SW.app.print(SW.reports.period(st.site, cur(), opts.guards ? st.guard : ''), cur().title);
+    const print = () => SW.app.print(SW.reports.period(st.site, cur(), opts.guards ? st.guard : '', opts.client), cur().title);
+    const cu = host.querySelector('#rp-cust');
+    if (cu) cu.onclick = async () => {
+      const S = sections(false);
+      const res = await U.modal({
+        title: 'Customise reports',
+        body: '<p>Choose what appears in reports (on screen, PDF and the emailed report). Client reports also follow the Client Portal settings.</p><div class="cv-grid">' + SECTIONS.map((x) => '<label class="cv-opt"><span class="switch"><input type="checkbox" name="' + x[0] + '"' + (S[x[0]] ? ' checked' : '') + '><span></span></span><span><b>' + esc(x[1]) + '</b></span></label>').join('') + '</div>',
+        actions: [{ label: 'Cancel', value: null }, { label: 'Save', cls: 'btn-primary', onClick: (m) => { const o = {}; SECTIONS.forEach((x) => (o[x[0]] = m.querySelector('[name=' + x[0] + ']').checked)); return o; } }],
+      });
+      if (res) { await db.saveSettings({ reportSections: res }); await db.audit('Report contents changed'); U.toast('Report contents saved', 'ok'); rerender(); }
+    };
     host.querySelector('#rp-print').onclick = print;
     host.querySelector('#rp-pdf').onclick = () => { U.toast('In the print window choose "Save as PDF"', 'info', 4000); setTimeout(print, 300); };
     host.querySelector('#rp-csv').onclick = () => SW.reports.periodCsv(st.site, cur(), opts.guards ? st.guard : '');

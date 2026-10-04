@@ -678,3 +678,40 @@ svg.donut .seg:hover, .dbar:hover { opacity: .75; }
   .hbar { grid-template-columns: 100px 1fr 26px; }
 }
 @media (max-width: 480px) { .dtiles { grid-template-columns: 1fr 1fr; gap: 8px; } .dt-v { font-size: 26px; } .dtile .spark { display: none; } }
+
+/* ---------- v2.3: toggles, client portal, welfare, sign-up ---------- */
+.switch { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch > span { width: 44px; height: 24px; border-radius: 999px; background: #C9D2E0; position: relative; transition: background .15s; flex: none; }
+.switch > span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .15s; }
+.switch input:checked + span { background: var(--green); }
+.switch input:checked + span::after { transform: translateX(20px); }
+.switch input:focus-visible + span { outline: 3px solid var(--blue); outline-offset: 2px; }
+.cv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.cv-opt { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; background: var(--white); }
+.cv-opt:hover { border-color: var(--blue); }
+.cv-opt b { display: block; font-size: 14.5px; }
+.cv-opt small { display: block; color: var(--ink-2); font-size: 12.5px; }
+.cp-preview { border: 2px dashed var(--line); border-radius: 14px; padding: 16px; background: var(--paper); }
+.ctiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.ctile { background: var(--white); border: 1px solid var(--line); border-top: 4px solid var(--tc); border-radius: 10px; padding: 12px 14px; }
+.ctile span { display: block; font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.ctile b { display: block; font-family: var(--font-c); font-size: 28px; }
+.ctile small { color: var(--ink-2); }
+.wf-form { display: grid; gap: 14px; }
+.wf-form .switch b { font-size: 16px; }
+.wf-opts { display: grid; gap: 14px; padding: 14px; border-radius: 10px; background: var(--paper); }
+.wf-mode { max-width: 360px; }
+.fld-lbl { display: block; font-size: 14px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+#wf-tlist { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.tchip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--white); }
+.tchip input { border: 0; font-size: 15px; font-weight: 600; background: none; width: 96px; }
+.tchip button { border: 0; background: var(--paper); width: 26px; height: 26px; border-radius: 50%; cursor: pointer; }
+.fld-narrow { max-width: 340px; margin: 0; }
+.login-signup { text-align: center; margin: 14px 0 0; font-size: 14.5px; }
+.pending { border: 1px solid #F1CC85; background: var(--amber-bg); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.pending h3 { margin: 0 0 8px; font-size: 15px; color: #6B4000; }
+.pend-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid #F3DCAA; }
+.pend-row:first-of-type { border-top: 0; }
+.pend-row > div { flex: 1; min-width: 0; }
+.pend-row small { display: block; color: var(--ink-2); }
