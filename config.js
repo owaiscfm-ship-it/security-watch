@@ -5,6 +5,6 @@
 window.SW_CONFIG = {
   version: '2.0.0',
   supabaseUrl: 'https://hauhcxdjsowgpjajivga.supabase.co',
-  supabaseKey: 'sb_publishable_KrARvUdRCWgk07MeGQrw-g_z-QBdLij',
+  supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhhdWhjeGRqc293Z3BqYWppdmdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NTY1ODksImV4cCI6MjEwNjQzMjU4OX0.vZM6MN1KA5kOW9jlvv-6YUfRY4AWYgLahbkqmS9gORQ',
   loginDomain: 'cfm-securewatch.local',
 };
