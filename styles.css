@@ -258,3 +258,6 @@ code{font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;background:v
 .cmlist{display:flex;flex-direction:column;gap:12px;max-height:46vh;overflow:auto}
 .cm{display:flex;gap:10px;align-items:flex-start}
 .aiins{display:flex;gap:8px;margin-top:8px;padding:8px;border-radius:8px;background:var(--panel)}
+/* page header as a soft hero panel */
+.main > .head{background:linear-gradient(135deg,var(--panel) 0%,color-mix(in srgb,var(--acc) 7%,var(--panel)) 100%);border:1px solid var(--border);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+.main > .head h1{font-size:24px}

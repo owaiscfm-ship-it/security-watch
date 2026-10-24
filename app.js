@@ -662,34 +662,105 @@ async function pageCustomerCare() {
 /* ---------- safeguarding ---------- */
 const DEFAULT_Q = [{"q": "What is the main purpose of safeguarding?", "options": ["To protect children from harm and promote their welfare", "To check staff timesheets", "To keep the building clean", "To report maintenance issues"], "answer": 0}, {"q": "Child protection is best described as:", "options": ["A cleaning standard", "Part of safeguarding, protecting children who are suffering or likely to suffer significant harm", "A school uniform policy", "Something only teachers deal with"], "answer": 1}, {"q": "Why is it hard to know exactly how many children are abused?", "options": ["Abuse never happens in schools", "Many cases are never reported and go undetected", "All cases are recorded online", "Children always tell an adult"], "answer": 1}, {"q": "Where can children be abused?", "options": ["Only at home", "Only online", "Anywhere, including home, institutions, the community and online", "Only by strangers in public"], "answer": 2}, {"q": "Who is most likely to abuse a child?", "options": ["Someone the child knows", "A complete stranger", "Another child only", "Nobody, abuse is rare"], "answer": 0}, {"q": "Which of these could be a sign of abuse?", "options": ["A child who is often happy", "Unexplained injuries or a sudden change in behaviour", "A child who likes school", "A child wearing a coat"], "answer": 1}, {"q": "Why might a child not tell anyone about abuse?", "options": ["They fear the abuser or feel they will not be believed", "They always want everyone to know", "They forget about it", "Abuse is not important to them"], "answer": 0}, {"q": "A child tells you something worrying. What should you do?", "options": ["Promise to keep it a secret", "Ask lots of leading questions", "Listen calmly, do not promise secrecy and report it straight away", "Ignore it in case you are wrong"], "answer": 2}, {"q": "Should you promise a child you will keep what they tell you a secret?", "options": ["Yes, always", "No, you must explain you may need to tell someone who can help", "Only if they ask nicely", "Only if it is about a teacher"], "answer": 1}, {"q": "Who should you report a safeguarding concern to at a school site?", "options": ["Another cleaner only", "The child's friends", "The Designated Safeguarding Lead (DSL) and your Crystal FM manager", "Nobody, wait and see"], "answer": 2}, {"q": "When should you write down what you saw or heard?", "options": ["As soon as possible, using the exact words and facts", "A week later", "Only if asked by the police", "Never write anything down"], "answer": 0}, {"q": "You are worried you might be making a false accusation. What should you do?", "options": ["Say nothing", "Report your concern anyway; it is the DSL's job to decide what happens", "Confront the person yourself", "Post about it on social media"], "answer": 1}];
 async function pageSafeguarding() {
-  const edit = canFlag('training', 'can_manage') && can('training', 'edit');
-  shell(`<div class="head"><div><div class="soft">Recruitment</div><h1>Safeguarding training</h1></div><div class="row">${themeSwitch()}</div></div><div id="sgBody">${SKEL}</div>`);
+  const edit = can('training', 'edit'), manage = canFlag('training', 'can_manage') && edit, send = canFlag('training', 'can_send_email');
+  const st = (S.sg ||= { tab: 'overview', q: '', status: '' });
+  const TABS = [['overview', 'Overview'], ['people', 'People'], ['send', 'Send training'], ['quiz', 'Quiz analysis'], ...(manage ? [['setup', 'Setup']] : [])];
+  shell(`<div class="head"><div><div class="soft">Recruitment</div><h1>Safeguarding training</h1><p class="muted" style="margin:2px 0 0">CATS Safeguarding Children Level 1 · 5 videos, quiz and certificate.</p></div><div class="row"><label class="f">Find a person<input id="sgQ" value="${esc(st.q)}" placeholder="Name or email"></label>${edit ? '<button class="btn pri" id="sgNew">Send training</button>' : ''}</div></div>
+    <div class="tabs" role="tablist">${TABS.map(([k, l]) => `<button role="tab" data-sgt="${k}" aria-selected="${st.tab === k}" class="${st.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div><div id="sgBody">${SKEL}</div>`);
+  $$('[data-sgt]').forEach((b) => (b.onclick = () => { st.tab = b.dataset.sgt; pageSafeguarding(); }));
+  $('#sgQ').onkeydown = (e) => { if (e.key === 'Enter') { st.q = e.target.value; st.tab = 'people'; pageSafeguarding(); } };
+  if ($('#sgNew')) $('#sgNew').onclick = () => { st.tab = 'send'; pageSafeguarding(); };
   const [links, res] = await Promise.all([fetchAll('training_links', '*', (q) => q.order('sent_at', { ascending: false })), fetchAll('training_results', '*')]);
   if (!$('#sgBody')) return;
-  const R = new Map(res.map((r) => [r.token, r])), now = Date.now();
-  const rows = links.map((l) => { const r = R.get(l.token) || {}; const status = r.passed ? 'Passed' : r.completed_at ? 'Failed' : (r.modules_watched || 0) > 0 ? 'In progress' : new Date(l.expires_at) < now ? 'Expired' : 'Not started'; return { ...l, r, status, overdue: !r.passed && now - new Date(l.sent_at) > 3 * 864e5 }; });
-  const passed = rows.filter((x) => x.status === 'Passed').length, dueSoon = rows.filter((x) => x.r.refresher_due && new Date(x.r.refresher_due) - now < 30 * 864e5).length;
-  const k = (l, v, sub, c) => `<div class="card kpi" style="--c:var(${c})"><span>${l}</span><b>${v}</b><small>${sub}</small></div>`;
-  const SC = { Passed: '--filled', Failed: '--danger', 'In progress': '--prog', 'Not started': '--hold', Expired: '--hold' };
   const T = S.settings.training?.videos?.length ? S.settings.training : { title: 'Safeguarding Children Level 1', pass_mark: 80, videos: ['Aims and learning outcomes', 'Introduction', 'Identifying the signs of abuse', 'Disclosures from children', 'Reporting and recording your concerns'].map((t, i) => ({ title: `Module ${i + 1} · ${t}`, youtube: '' })), questions: S.settings.training?.questions?.length ? S.settings.training.questions : DEFAULT_Q };
-  const base = location.origin + location.pathname.replace(/index\.html$/, '') + 'training.html';
-  $('#sgBody').innerHTML = `<div style="display:flex;flex-direction:column;gap:20px">
-    <section class="grid">${k('Trained', (rows.length ? Math.round(passed / rows.length * 100) : 0) + '%', `${passed} of ${rows.length} people`, '--filled')}${k('In progress', rows.filter((x) => x.status === 'In progress').length, 'watching videos', '--prog')}${k('Overdue', rows.filter((x) => x.overdue).length, 'not passed after 3 days', '--danger')}${k('Refresher due', dueSoon, 'in the next 30 days', '--raised')}</section>
-${edit ? `<details class="card" ${T.videos.some((v) => !v.youtube) ? 'open' : ''}><summary style="cursor:pointer"><h2 style="display:inline">Training setup: videos, pass mark and quiz</h2>${T.videos.some((v) => !v.youtube) ? ' <span class="chip" style="--c:var(--danger)">Video links missing</span>' : ''}</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:12px"><p class="muted" style="margin:6px 0 12px">Paste the 5 unlisted YouTube links. Questions can be edited below (answer = option number starting at 0).</p>
-      ${T.videos.map((v, i) => `<label class="f">${esc(v.title)}<input data-vid="${i}" value="${esc(v.youtube)}" placeholder="https://youtu.be/…"></label>`).join('')}
-      <label class="f" style="margin-top:10px">Pass mark %<input id="sgPass" type="number" min="50" max="100" value="${T.pass_mark}"></label>
-      <label class="f" style="margin-top:10px">Questions (JSON)<textarea id="sgQ" style="min-height:260px">${esc(JSON.stringify(T.questions, null, 2))}</textarea></label>
-      <button class="btn pri" id="sgSave" style="margin-top:10px">Save training content</button></div></details>` : ''}
-    <div class="tablewrap"><table><thead><tr><th>Name</th><th>Email</th><th>Link sent</th><th>Modules</th><th>Score</th><th>Status</th><th>Refresher due</th><th></th></tr></thead><tbody>
-    ${rows.map((x) => `<tr><td><strong>${esc(x.person)}</strong></td><td>${esc(x.email || '')}</td><td class="mono">${new Date(x.sent_at).toLocaleDateString('en-GB')}</td><td>${x.r.modules_watched || 0} / ${T.videos.length}</td><td>${x.r.score ?? '—'}${x.r.score != null ? '%' : ''}</td><td>${chip(x.status, SC)}${x.overdue ? ' <span class="err">overdue</span>' : ''}</td><td class="mono">${esc(x.r.refresher_due || '')}</td>
-      <td><button class="btn sm" data-copy="${x.token}">Copy link</button>${x.status === 'Passed' ? ` <a class="btn sm" style="display:inline-flex;align-items:center;text-decoration:none" target="_blank" rel="noopener" href="${base}?t=${x.token}">Certificate</a>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="muted" style="padding:20px">No training links yet. They are created when a hire or cover email is sent.</td></tr>'}</tbody></table></div>
-</div>`;
-  $$('[data-copy]').forEach((b) => (b.onclick = async () => { await navigator.clipboard.writeText(`${base}?t=${b.dataset.copy}`); toast('Link copied.'); }));
-  if (edit) $('#sgSave').onclick = async () => {
-    let qs; try { qs = JSON.parse($('#sgQ').value); } catch (_) { return toast('Questions are not valid JSON. Check commas and brackets.', true); }
-    const value = { ...T, pass_mark: +$('#sgPass').value, videos: T.videos.map((v, i) => ({ ...v, youtube: $(`[data-vid="${i}"]`).value.trim() })), questions: qs };
-    const { error } = await sb.from('settings').upsert({ key: 'training', value }); if (error) return toast(error.message, true); S.settings.training = value; toast('Training content saved.');
-  };
+  const base = location.origin + location.pathname.replace(/index\.html$/, '') + 'training.html', now = Date.now();
+  const R = new Map(res.map((r) => [r.token, r]));
+  const rows = links.map((l) => { const r = R.get(l.token) || {}; const status = r.passed ? 'Passed' : r.completed_at ? 'Failed' : (r.modules_watched || 0) > 0 ? 'In progress' : new Date(l.expires_at) < now ? 'Expired' : 'Not started';
+    return { ...l, r, status, overdue: !r.passed && now - new Date(l.sent_at) > 3 * 864e5 && status !== 'Expired', refresh: r.refresher_due && new Date(r.refresher_due) - now < 30 * 864e5 }; });
+  const SC = { Passed: '--filled', Failed: '--danger', 'In progress': '--prog', 'Not started': '--hold', Expired: '--hold' };
+  const PC = [['person', 'Name'], ['email', 'Email'], ['sent', 'Link sent', (x) => new Date(x.sent_at).toLocaleDateString('en-GB')], ['exp', 'Expires', (x) => new Date(x.expires_at).toLocaleDateString('en-GB')], ['mod', 'Modules', (x) => `${x.r.modules_watched || 0}/${T.videos.length}`], ['score', 'Score %', (x) => x.r.score ?? ''], ['att', 'Attempts', (x) => x.r.attempts || (x.r.completed_at ? 1 : 0)], ['status', 'Status'], ['rd', 'Refresher due', (x) => x.r.refresher_due || '']];
+  const kk = (l, v, sub, c, key, list) => `<div class="card kpi click" style="--c:var(${c})" ${dset(key, l, list, PC)}><span>${l}</span><b>${v}</b><small>${sub}</small></div>`;
+  const body = $('#sgBody'), passed = rows.filter((x) => x.status === 'Passed');
+
+  if (st.tab === 'overview') {
+    const started = rows.filter((x) => (x.r.modules_watched || 0) > 0 || x.r.completed_at), allMods = rows.filter((x) => (x.r.modules_watched || 0) >= T.videos.length), sc = passed.map((x) => x.r.score).filter((x) => x != null);
+    body.innerHTML = `<div style="display:flex;flex-direction:column;gap:16px"><section class="grid">
+      ${kk('Trained', (rows.length ? Math.round(passed.length / rows.length * 100) : 0) + '%', `${passed.length} of ${rows.length} people`, '--filled', 'sg1', passed)}
+      ${kk('In progress', rows.filter((x) => x.status === 'In progress').length, 'watching videos', '--prog', 'sg2', rows.filter((x) => x.status === 'In progress'))}
+      ${kk('Not started', rows.filter((x) => x.status === 'Not started').length, 'link sent, not opened', '--hold', 'sg3', rows.filter((x) => x.status === 'Not started'))}
+      ${kk('Overdue', rows.filter((x) => x.overdue).length, 'not passed after 3 days', '--danger', 'sg4', rows.filter((x) => x.overdue))}
+      ${kk('Failed quiz', rows.filter((x) => x.status === 'Failed').length, 'need another go', '--danger', 'sg5', rows.filter((x) => x.status === 'Failed'))}
+      ${kk('Expired links', rows.filter((x) => x.status === 'Expired').length, 'resend or extend', '--hold', 'sg6', rows.filter((x) => x.status === 'Expired'))}
+      ${kk('Average score', sc.length ? Math.round(sc.reduce((a, b) => a + b, 0) / sc.length) + '%' : '—', `pass mark ${T.pass_mark}%`, '--acc', 'sg7', passed)}
+      ${kk('Refresher due', rows.filter((x) => x.refresh).length, 'in the next 30 days', '--raised', 'sg8', rows.filter((x) => x.refresh))}</section>
+      <section class="charts"><div class="card"><h2>Completion funnel</h2><canvas id="sgF"></canvas></div><div class="card"><h2>Passed per month</h2><canvas id="sgM"></canvas></div></section>
+      ${T.videos.some((v) => !v.youtube) ? `<div class="card" style="border-left:3px solid var(--danger)"><b>Video links are missing.</b> <span class="muted">People can't start the training until all 5 YouTube links are added in ${manage ? 'the Setup tab' : 'Setup (ask Syed)'}.</span></div>` : ''}</div>`;
+    Chart.defaults.color = cssv('--muted'); Chart.defaults.borderColor = cssv('--border');
+    S.charts.push(new Chart($('#sgF'), { type: 'bar', data: { labels: ['Links sent', 'Started', 'All videos watched', 'Passed'], datasets: [{ data: [rows.length, started.length, allMods.length, passed.length], backgroundColor: ['--acc', '--prog', '--offer', '--filled'].map(cssv), borderRadius: 6 }] }, options: { indexAxis: 'y', plugins: { legend: { display: false } } } }));
+    const ms = [...Array(6)].map((_, i) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 5 + i); return d.toISOString().slice(0, 7); });
+    S.charts.push(new Chart($('#sgM'), { type: 'bar', data: { labels: ms.map((m) => MN[+m.slice(5) - 1]), datasets: [{ label: 'Passed', data: ms.map((m) => passed.filter((x) => (x.r.completed_at || '').startsWith(m)).length), backgroundColor: cssv('--filled'), borderRadius: 5 }, { label: 'Links sent', data: ms.map((m) => rows.filter((x) => (x.sent_at || '').startsWith(m)).length), backgroundColor: cssv('--acc'), borderRadius: 5 }] } }));
+    return;
+  }
+
+  if (st.tab === 'people') {
+    body.innerHTML = `<div style="display:flex;flex-direction:column;gap:12px"><div class="row"><label class="f" style="flex:1;min-width:240px">Search<input id="spQ" value="${esc(st.q)}" placeholder="Name or email"></label><label class="f">Status<select id="spS"><option value="">All</option>${['Passed', 'In progress', 'Not started', 'Failed', 'Expired', 'Overdue', 'Refresher due'].map((x) => `<option ${st.status === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>${send ? '<button class="btn" id="spRem">Email reminder to all overdue</button>' : ''}</div><div class="tablewrap" id="spW"></div></div>`;
+    let list = [];
+    const draw = () => { st.q = $('#spQ').value.toLowerCase(); st.status = $('#spS').value;
+      list = rows.filter((x) => (!st.q || `${x.person} ${x.email}`.toLowerCase().includes(st.q)) && (!st.status || (st.status === 'Overdue' ? x.overdue : st.status === 'Refresher due' ? x.refresh : x.status === st.status)));
+      $('#spW').innerHTML = `<table><thead><tr>${PC.map(([, l]) => `<th>${l}</th>`).join('')}<th></th></tr></thead><tbody>${list.map((x) => `<tr data-t="${x.token}"><td><strong>${esc(x.person)}</strong></td><td>${esc(x.email || '')}</td><td class="mono">${new Date(x.sent_at).toLocaleDateString('en-GB')}</td><td class="mono ${new Date(x.expires_at) < now && x.status !== 'Passed' ? 'err' : ''}">${new Date(x.expires_at).toLocaleDateString('en-GB')}</td>
+        <td><div style="display:flex;align-items:center;gap:6px"><div style="width:60px;height:6px;border-radius:99px;background:var(--track)"><div style="height:6px;border-radius:99px;width:${Math.round((x.r.modules_watched || 0) / T.videos.length * 100)}%;background:var(--acc)"></div></div>${x.r.modules_watched || 0}/${T.videos.length}</div></td><td class="mono">${x.r.score ?? ''}</td><td>${x.r.attempts || (x.r.completed_at ? 1 : 0)}</td><td>${chip(x.status, SC)}${x.overdue ? ' <span class="err" style="font-size:11.5px">overdue</span>' : ''}</td><td class="mono">${x.r.refresher_due || ''}</td>
+        <td style="white-space:nowrap"><button class="btn sm" data-a="copy" title="Copy link">🔗</button>${send && x.email ? ' <button class="btn sm" data-a="mail" title="Email link">✉️</button>' : ''}${edit ? ' <button class="btn sm" data-a="extend" title="Extend 7 days">+7d</button>' : ''}${edit && x.status === 'Failed' ? ' <button class="btn sm" data-a="reset" title="Let them retry">↺</button>' : ''}${x.status === 'Passed' ? ` <a class="btn sm" target="_blank" rel="noopener" href="${base}?t=${x.token}" title="Certificate">🎓</a>` : ''}</td></tr>`).join('') || `<tr><td colspan="10">${empty('Nobody matches', 'Send training from the "Send training" tab.')}</td></tr>`}</tbody></table>`;
+      $$('#spW [data-a]').forEach((b) => (b.onclick = () => act(b.dataset.a, b.closest('tr').dataset.t))); };
+    const act = async (a, token) => { const x = rows.find((r) => r.token === token);
+      if (a === 'copy') { await navigator.clipboard.writeText(`${base}?t=${token}`); return toast('Link copied.'); }
+      if (a === 'mail') return emailModal('training_link', token, () => {});
+      if (a === 'extend') { const exp = new Date(Math.max(Date.now(), new Date(x.expires_at)) + 7 * 864e5).toISOString(); const { error } = await sb.from('training_links').update({ expires_at: exp }).eq('token', token); toast(error ? error.message : 'Extended by 7 days.', !!error); if (!error) { x.expires_at = exp; draw(); } }
+      if (a === 'reset') { const { error } = await sb.from('training_results').update({ score: null, passed: null, completed_at: null }).eq('token', token); toast(error ? error.message : 'They can retry the quiz now.', !!error); if (!error) pageSafeguarding(); } };
+    $('#spQ').oninput = draw; $('#spS').onchange = draw;
+    if ($('#spRem')) $('#spRem').onclick = async () => { const od = rows.filter((x) => x.overdue && x.email); if (!od.length) return toast('Nobody overdue has an email address.', true); if (!confirm(`Email the training link again to ${od.length} people?`)) return; let ok = 0; for (const x of od) { try { await callFn('send-email', { template: 'training_link', id: x.token }); ok++; } catch (e) { toast(e.message, true); break; } } toast(`${ok} reminder(s) sent.`); };
+    draw(); return;
+  }
+
+  if (st.tab === 'send') {
+    body.innerHTML = `<div class="charts"><section class="card" style="display:flex;flex-direction:column;gap:12px"><h2>Send training to someone</h2>
+      <form id="snF" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px"><label class="f">Full name<input name="person" required></label><label class="f">Email<input name="email" type="email" placeholder="Needed to email the link"></label><label class="f">Link valid for<select name="days"><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label>
+      <div class="row" style="grid-column:1/-1">${edit ? '<button class="btn pri">Create link</button>' : '<span class="soft">You need Edit access to Safeguarding.</span>'}</div></form><div id="snOut"></div></section>
+      <section class="card"><h2>How it works</h2><div class="list"><div><span>1. Create the link here, or it's created automatically when a hire or cover email is sent</span></div><div><span>2. They watch 5 videos on their phone (each must finish before the next unlocks)</span></div><div><span>3. Quiz: ${T.questions.length} questions, pass mark ${T.pass_mark}%. They can retry.</span></div><div><span>4. Certificate straight away; refresher due in 12 months</span></div><div><span>5. Overdue after 3 days: reminders from the People tab</span></div></div></section></div>`;
+    if ($('#snF') && edit) $('#snF').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
+      const { data, error } = await sb.from('training_links').insert({ person: f.person.trim(), email: f.email.trim() || null, expires_at: new Date(Date.now() + +f.days * 864e5).toISOString() }).select('token').single();
+      if (error) return toast(error.message, true); const url = `${base}?t=${data.token}`;
+      $('#snOut').innerHTML = `<div class="card" style="background:var(--panel2);display:flex;flex-direction:column;gap:8px"><b>Link ready for ${esc(f.person)}</b><code style="word-break:break-all">${esc(url)}</code><div class="row"><button class="btn" id="snC">Copy link</button>${send && f.email ? '<button class="btn pri" id="snM">Email it</button>' : ''}<a class="btn" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent('Hi ' + f.person.split(' ')[0] + ', please complete your Crystal FM safeguarding training before your first shift: ' + url)}">WhatsApp</a></div></div>`;
+      $('#snC').onclick = async () => { await navigator.clipboard.writeText(url); toast('Copied.'); }; if ($('#snM')) $('#snM').onclick = () => emailModal('training_link', data.token, () => toast('Sent.')); e.target.reset(); };
+    return;
+  }
+
+  if (st.tab === 'quiz') {
+    const done = res.filter((r) => Array.isArray(r.answers) && r.answers.length);
+    const stats = T.questions.map((q, i) => { const n = done.filter((r) => r.answers[i] != null), ok = n.filter((r) => +r.answers[i] === q.answer).length; const wrong = {}; n.forEach((r) => { if (+r.answers[i] !== q.answer) wrong[r.answers[i]] = (wrong[r.answers[i]] || 0) + 1; }); const top = Object.entries(wrong).sort((a, b) => b[1] - a[1])[0];
+      return { i, q: q.q, n: n.length, pct: n.length ? Math.round(ok / n.length * 100) : null, wrong: top ? `${q.options[+top[0]] || '?'} (${top[1]})` : '' }; });
+    body.innerHTML = done.length ? `<div style="display:flex;flex-direction:column;gap:14px"><p class="muted" style="margin:0">${done.length} quiz attempts analysed. Questions people get wrong most often are at the top; consider covering them better in the induction.</p>
+      <div class="tablewrap"><table><thead><tr><th>#</th><th>Question</th><th>Answered</th><th>% correct</th><th>Most common wrong answer</th></tr></thead><tbody>${stats.sort((a, b) => (a.pct ?? 101) - (b.pct ?? 101)).map((x) => `<tr><td>${x.i + 1}</td><td>${esc(x.q)}</td><td>${x.n}</td><td><span class="chip" style="--c:var(${x.pct == null ? '--hold' : x.pct < 60 ? '--danger' : x.pct < 85 ? '--prog' : '--filled'})">${x.pct ?? '—'}${x.pct != null ? '%' : ''}</span></td><td class="soft">${esc(x.wrong)}</td></tr>`).join('')}</tbody></table></div></div>`
+      : `<div class="card">${empty('No quiz attempts recorded yet', 'Answers are saved from now on (after phase14 SQL and the new training function).')}</div>`;
+    return;
+  }
+
+  if (st.tab === 'setup' && manage) {
+    let Q = JSON.parse(JSON.stringify(T.questions));
+    const qHtml = () => Q.map((q, i) => `<div class="card" style="padding:12px;display:flex;flex-direction:column;gap:6px" data-qi="${i}"><div class="row" style="align-items:center"><b style="flex:none">Q${i + 1}</b><input data-k="q" value="${esc(q.q)}" style="flex:1" aria-label="Question ${i + 1}"><button type="button" class="btn sm" data-del title="Remove">✕</button></div>
+      ${q.options.map((o, j) => `<label style="display:flex;gap:8px;align-items:center"><input type="radio" name="ans${i}" data-ans="${j}" ${q.answer === j ? 'checked' : ''} aria-label="Correct answer"><input data-opt="${j}" value="${esc(o)}" style="flex:1" aria-label="Option ${j + 1}"></label>`).join('')}</div>`).join('');
+    body.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px"><section class="card" style="display:flex;flex-direction:column;gap:10px"><h2>Videos (unlisted YouTube links)</h2>${T.videos.map((v, i) => `<label class="f">${esc(v.title)}<div class="row"><input data-vid="${i}" value="${esc(v.youtube)}" placeholder="https://youtu.be/…" style="flex:1">${v.youtube ? `<a class="btn sm" href="${esc(v.youtube)}" target="_blank" rel="noopener">Test</a>` : '<span class="chip" style="--c:var(--danger)">missing</span>'}</div></label>`).join('')}
+      <div class="row"><label class="f">Pass mark %<input id="suP" type="number" min="50" max="100" value="${T.pass_mark}" style="width:110px"></label><label class="f">Course title<input id="suT" value="${esc(T.title || '')}" style="min-width:300px"></label></div></section>
+      <section class="card" style="display:flex;flex-direction:column;gap:10px"><h2>Quiz questions <span class="soft" style="font-weight:500;font-size:12px;margin-left:auto">tick the correct answer</span></h2><div id="suQ" style="display:flex;flex-direction:column;gap:10px">${qHtml()}</div><button type="button" class="btn" id="suAdd">＋ Add question</button></section>
+      <div class="row"><button class="btn pri" id="suSave">Save training setup</button><a class="btn" href="${base}?t=preview" target="_blank" rel="noopener">Open training page</a></div></div>`;
+    const sync = () => $$('#suQ [data-qi]').forEach((card) => { const i = +card.dataset.qi; Q[i].q = $('[data-k=q]', card).value; Q[i].options = $$('[data-opt]', card).map((o) => o.value); const a = $('[data-ans]:checked', card); Q[i].answer = a ? +a.dataset.ans : 0; });
+    const rebind = () => $$('#suQ [data-del]').forEach((b) => (b.onclick = () => { sync(); Q.splice(+b.closest('[data-qi]').dataset.qi, 1); $('#suQ').innerHTML = qHtml(); rebind(); }));
+    rebind();
+    $('#suAdd').onclick = () => { sync(); Q.push({ q: '', options: ['', '', '', ''], answer: 0 }); $('#suQ').innerHTML = qHtml(); rebind(); };
+    $('#suSave').onclick = async () => { sync(); if (Q.some((q) => !q.q.trim() || q.options.some((o) => !o.trim()))) return toast('Fill in every question and all 4 answers.', true);
+      const value = { ...T, title: $('#suT').value, pass_mark: +$('#suP').value, videos: T.videos.map((v, i) => ({ ...v, youtube: $(`[data-vid="${i}"]`).value.trim() })), questions: Q };
+      const { error } = await sb.from('settings').upsert({ key: 'training', value }); if (error) return toast(error.message, true); S.settings.training = value; toast('Training setup saved.'); };
+    return;
+  }
 }
 
 /* ---------- finance & P&L ---------- */
@@ -907,11 +978,20 @@ async function pageMap() {
     toast(error ? (/bucket not found/i.test(error.message) ? 'Storage not set up yet: run fix-hub-bucket.sql in Supabase, then upload again.' : error.message) : 'Operations Hub updated.', !!error); if (!error) { S.hubHtml = null; pageMap(); }
   };
   if (!S.hubHtml) {
-    const { data, error } = await sb.storage.from('private-tools').download('ops-hub.html');
+    // 1) your latest uploaded version (if any), 2) the version built into the portal (encrypted; key only for Operations users)
+    try { const { data } = await sb.storage.from('private-tools').download('ops-hub.html'); if (data) S.hubHtml = await data.text(); } catch (_) {}
+    if (!S.hubHtml) {
+      try {
+        const [{ data: kr, error: ke }, buf] = await Promise.all([sb.from('hub_keys').select('k').eq('id', 1).single(), fetch('hub.enc?v=20261024d').then((r) => { if (!r.ok) throw new Error('hub.enc missing'); return r.arrayBuffer(); })]);
+        if (ke || !kr) throw new Error(ke?.message || 'no key');
+        const raw = new Uint8Array(kr.k.match(/../g).map((h) => parseInt(h, 16)));
+        const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+        const bytes = new Uint8Array(buf), plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12));
+        S.hubHtml = await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+      } catch (e) { console.warn('built-in hub', e); }
+    }
     if (!$('#hubBox')) return;
-    if (error && /bucket not found/i.test(error.message || '')) { $('#hubBox').innerHTML = `<div class="card"><h2>Storage for the Operations Hub isn't set up yet</h2><p class="muted" style="margin:6px 0 0">${isAdmin() ? 'In Supabase → SQL Editor, run <b>fix-hub-bucket.sql</b>, then click "Upload new version" here. Meanwhile the <b>Sites map</b> tab works without it.' : 'Ask Syed to finish the setup. The Sites map tab works meanwhile.'}</p></div>`; return; }
-    if (error || !data) { $('#hubBox').innerHTML = `<div class="card"><h2>Operations Hub not uploaded yet</h2><p class="muted" style="margin:6px 0 0">${isAdmin() ? 'Click "Upload new version" and choose your Owais_Tool_Updated.html file. It is stored privately: only people with Operations access can open it.' : 'Ask Syed to upload the Operations Hub.'}</p></div>`; return; }
-    S.hubHtml = await data.text();
+    if (!S.hubHtml) { $('#hubBox').innerHTML = `<div class="card">${empty("The Operations Hub couldn't open", isAdmin() ? 'Run phase14-hub-builtin.sql in Supabase (it holds the unlock key), then refresh.' : 'Ask Syed to finish the setup. The Sites map tab works meanwhile.')}</div>`; return; }
   }
   if (S.hubUrl) URL.revokeObjectURL(S.hubUrl); S.hubUrl = URL.createObjectURL(new Blob([S.hubHtml], { type: 'text/html' }));
   const fr = document.createElement('iframe'); fr.className = 'hubframe'; fr.title = 'Crystal FM Operations Hub'; fr.src = S.hubUrl; fr.setAttribute('allow', 'fullscreen; clipboard-write; geolocation');
@@ -2024,7 +2104,7 @@ async function openComments(type, id, label) {
 
 /* ---------- P5: AI everywhere ---------- */
 const pageCtx = () => ({ title: ($('.head h1')?.textContent || '').trim(), page: location.hash, kpis: $$('.kpi').slice(0, 14).map((k2) => ({ label: k2.querySelector('span')?.textContent?.trim(), value: k2.querySelector('b')?.textContent?.trim(), note: k2.querySelector('small')?.textContent?.trim() })),
-  datasets: Object.values(S.drills || {}).slice(0, 12).map((d) => ({ title: d.title, rows: d.rows.length, sample: d.rows.slice(0, 12).map((r) => Object.fromEntries(d.cols.slice(0, 8).map(([k2, l, f]) => [l, cellText(f ? f(r) : r[k2])]))) })) });
+  datasets: Object.values(S.drills || {}).slice(0, 8).map((d) => ({ title: d.title, rows: d.rows.length, sample: d.rows.slice(0, 6).map((r) => Object.fromEntries(d.cols.slice(0, 7).map(([k2, l, f]) => [l, String(cellText(f ? f(r) : r[k2])).slice(0, 60)]))) })) });
 function aiAsk(q) { if (!$('#aiFab')) return; openAI().then(() => askAI(q)); }
 async function aiInsightsPanel() {
   $('#aiMsgs').insertAdjacentHTML('beforeend', '<div class="aim bot typing" id="aiT2"><span></span><span></span><span></span></div>'); $('#aiMsgs').scrollTop = 1e9;
