@@ -229,3 +229,32 @@ code{font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;background:v
 .leaflet-bar a{background:var(--panel);color:var(--text);border-color:var(--border)}
 @media (max-width:960px){.mapgrid{grid-template-columns:1fr}#map{height:62vh;min-height:380px}.mapside{max-height:none;min-height:0}}
 @media (max-width:700px){.appbar{gap:8px;padding:0 10px}.search{flex:0 0 34px;padding:0;justify-content:center}.search span,.search .kbd{display:none}.newbtn{padding:0 10px}.appbar .seg{display:none}}
+
+/* ── Phase 2: motion, empty states, table toolbar, mobile nav ── */
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+.main > *{animation:rise .28s ease both}.main > *:nth-child(2){animation-delay:.03s}.main > *:nth-child(3){animation-delay:.06s}.main > *:nth-child(4){animation-delay:.09s}
+.modal .box,.cmdk,.aipanel,.menu{animation:pop .16s ease both}
+.btn,.card,.side a,.tabs button{transition:background .12s,border-color .12s,color .12s,box-shadow .12s}
+.empty{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:26px 12px;color:var(--soft)}
+.empty b{color:var(--text)}.emptyicon{width:44px;height:44px;border-radius:12px;background:var(--sunken);display:grid;place-items:center;color:var(--faint)}
+.tbar{display:flex;gap:6px;justify-content:flex-end;margin-bottom:-8px}
+.tmenu{max-height:320px;overflow:auto;min-width:220px}
+.sarr{color:var(--acc);font-size:10px}
+.burger{display:none}
+@media (max-width:960px){.burger{display:grid}.side{display:flex;position:fixed;left:0;top:54px;bottom:0;z-index:35;transform:translateX(-105%);transition:transform .2s;box-shadow:var(--shadow-lg);height:auto}body.navopen .side{transform:none}}
+
+/* ── Kanban (pipeline + cover board) ── */
+.kanban{display:grid;grid-template-columns:repeat(5,minmax(230px,1fr));gap:12px;overflow-x:auto;padding-bottom:4px}
+.kcol{background:var(--sunken);border:1px solid var(--border);border-radius:var(--r);display:flex;flex-direction:column;min-height:220px;max-height:70vh}
+.kcol header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border)}
+.kcol.over{outline:2px dashed var(--acc);outline-offset:-4px}
+.kitems{padding:8px;display:flex;flex-direction:column;gap:8px;overflow:auto}
+.kcard{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;box-shadow:var(--shadow-sm);cursor:grab;font-size:13px}
+.kcard.drag{opacity:.5}.kcard.kred{border-left:3px solid var(--danger)}
+.kmeta{display:flex;gap:6px;align-items:center;justify-content:space-between;margin-top:4px;font-size:12px}
+.kmeta input{min-height:30px;width:100%;font-size:12px}
+/* ── Comments & AI insights ── */
+.cmlist{display:flex;flex-direction:column;gap:12px;max-height:46vh;overflow:auto}
+.cm{display:flex;gap:10px;align-items:flex-start}
+.aiins{display:flex;gap:8px;margin-top:8px;padding:8px;border-radius:8px;background:var(--panel)}

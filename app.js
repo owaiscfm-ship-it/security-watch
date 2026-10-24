@@ -9,7 +9,7 @@ const KINDS = [
   ['client_email_due','Cover confirmed – tell the client','customer_care'],['client_email_overdue','Client emails overdue (daily)','customer_care'],
   ['vacancy_new','New vacancy raised','recruitment'],['vacancy_filled','Vacancy filled','recruitment'],['vacancy_old','Vacancies open 14+ days (daily)','recruitment'],
   ['training_passed','Safeguarding passed','training'],['training_failed','Safeguarding quiz failed','training'],['training_overdue','Safeguarding overdue (daily)','training'],['refresher_due','Refresher due (daily)','training'],
-  ['sick_today','Someone off sick today (BrightHR)','brighthr'],['no_clockin','Cleaner not clocked in (Blip)','covers'],['year2_due','Year 2 pricing due (weekly)','contracts'],['user_added','New portal user','admin']];
+  ['sick_today','Someone off sick today (BrightHR)','brighthr'],['mention','Someone @mentions you','*'],['complaint_high','High-severity complaint','operations'],['audit_fail','Audit failed','operations'],['no_clockin','Cleaner not clocked in (Blip)','covers'],['year2_due','Year 2 pricing due (weekly)','contracts'],['user_added','New portal user','admin']];
 const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const STATUSES = ['Vacant','In Progress','Offer','Filled','On Hold'];
 
@@ -49,12 +49,14 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 /* ---------- theme ---------- */
-function applyTheme(t) { document.documentElement.dataset.theme = t; try { localStorage.setItem('theme', t); } catch (_) {} }
+const sysDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+function applyTheme(t) { S.themePref = t; document.documentElement.dataset.theme = t === 'system' ? (sysDark?.matches ? 'dark' : 'light') : t; try { localStorage.setItem('theme', t); } catch (_) {} }
+sysDark?.addEventListener?.('change', () => { if (S.themePref === 'system') { applyTheme('system'); if (S.profile) route(); } });
 try { applyTheme(localStorage.getItem('theme') || 'light'); } catch (_) { applyTheme('light'); }
 const themeSwitch = () => '';
 const themeBar = () => {
   const t = document.documentElement.dataset.theme;
-  return `<div class="seg" role="group" aria-label="Theme"><button data-theme="light" class="${t === 'light' ? 'on' : ''}" aria-pressed="${t === 'light'}">Light</button><button data-theme="dark" class="${t === 'dark' ? 'on' : ''}" aria-pressed="${t === 'dark'}">Dark</button></div>`;
+  return `<div class="seg" role="group" aria-label="Theme">${[['light', 'Light'], ['dark', 'Dark'], ['system', 'Auto']].map(([v, l]) => `<button data-theme="${v}" class="${(S.themePref || t) === v ? 'on' : ''}" aria-pressed="${(S.themePref || t) === v}" title="${v === 'system' ? 'Follow my device' : l}">${l}</button>`).join('')}</div>`;
 };
 document.addEventListener('click', (e) => { const b = e.target.closest('button[data-theme]'); if (b) { applyTheme(b.dataset.theme); if (S.profile) route(); } });
 
@@ -120,11 +122,12 @@ const I = {
   lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>' };
 const NAV = [
   ['Overview'], ['#/home', 'Operations overview', 'home', 'home'],
-  ['Recruitment'], ['#/dashboard', 'Recruitment dashboard', 'recruitment', 'chart'], ['#/hiring', 'New hiring', 'recruitment', 'hire'], ['#/covers', 'Covers', 'covers', 'cover'], ['#/safeguarding', 'Safeguarding', 'training', 'shield'],
+  ['Recruitment'], ['#/dashboard', 'Recruitment dashboard', 'recruitment', 'chart'], ['#/hiring', 'New hiring', 'recruitment', 'hire'], ['#/pipeline', 'Hiring pipeline', 'recruitment', 'hire'], ['#/covers', 'Covers', 'covers', 'cover'], ['#/cover-board', 'Live cover board', 'covers', 'cover'], ['#/safeguarding', 'Safeguarding', 'training', 'shield'],
   ['Customer Care'], ['#/customer-care', 'Client cover emails', 'customer_care', 'mail'],
   ['People'], ['#/brighthr', 'BrightHR live', 'brighthr', 'hr'],
   ['Finance'], ['#/finance', 'Contract P&L', 'finance', 'money'],
-  ['Operations'], ['#/map', 'Operations Hub map', 'operations', 'map'], ['#/contracts', 'Contracts and sites', 'contracts', 'doc'],
+  ['Operations'], ['#/map', 'Sites map', 'operations', 'map'], ['#/operations', 'Audits, complaints, orders', 'operations', 'shield'], ['#/contracts', 'Contracts and sites', 'contracts', 'doc'],
+  ['Insights'], ['#/forecast', 'Forecasts and risk', 'home', 'chart'],
   ['Data'], ['#/data', 'Import and export', '*', 'doc'],
   ['Account'], ['#/settings', 'My settings', '*', 'gear'], ['#/admin', 'Admin', 'admin', 'lock']];
 function shell(inner) {
@@ -139,6 +142,7 @@ function shell(inner) {
   const ini = S.profile.full_name.split(' ').map((x) => x[0]).slice(0, 2).join('').toUpperCase();
   const t = document.documentElement.dataset.theme;
   $('#app').innerHTML = `<header class="appbar">
+      <button class="iconbtn burger" id="burger" aria-label="Menu">${ICON('<path d="M3 6h18M3 12h18M3 18h18"/>')}</button>
       <a class="brand" href="#/home"><div class="logo" aria-hidden="true"></div><div><b>Crystal Operations</b><small>Crystal Facilities Management</small></div></a>
       <button class="search" id="cmdBtn" aria-label="Search the portal">${ICON('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>')}<span>Search pages, sites, contracts, staff…</span><kbd class="kbd">Ctrl K</kbd></button>
       <div class="spacer"></div>
@@ -163,6 +167,7 @@ function shell(inner) {
   $('#signout').onclick = async () => { await sb.auth.signOut(); location.hash = ''; renderLogin(); };
   $('#bell').onclick = openBell; bellCount();
   $('#cmdBtn').onclick = openCmd;
+  $('#burger').onclick = () => document.body.classList.toggle('navopen'); $$('.side a').forEach((a2) => a2.addEventListener('click', () => document.body.classList.remove('navopen')));
   S.drills = {}; mountAI();
   $('#slim').onclick = () => { document.body.classList.toggle('slim'); try { localStorage.setItem('slim', document.body.classList.contains('slim') ? '1' : ''); } catch (_) {} $('#slim').textContent = document.body.classList.contains('slim') ? '» Expand' : '« Collapse sidebar'; };
 }
@@ -194,6 +199,11 @@ const spark = (vals, color = 'var(--c,var(--acc))') => { if (!vals || vals.lengt
 const SKEL = `<div class="skel" aria-busy="true"><span class="sr">Loading…</span><div class="g"><i></i><i></i><i></i><i></i></div><i class="t"></i></div>`;
 function route() {
   const h = location.hash;
+  if (h.startsWith('#/comments/')) { const [, , type, id] = h.split('/'); location.hash = '#/home'; setTimeout(() => openComments(type, id, 'Comments'), 600); return; }
+  if (h.startsWith('#/pipeline') && can('recruitment')) return pagePipeline();
+  if (h.startsWith('#/cover-board') && can('covers')) return pageCoverBoard();
+  if (h.startsWith('#/operations') && can('operations')) return pageOperations();
+  if (h.startsWith('#/forecast')) return pageForecast();
   if (h.startsWith('#/home')) return pageHome();
   if (h.startsWith('#/hiring') && can('recruitment')) return pageHiring();
   if (h.startsWith('#/customer-care') && can('customer_care')) return pageCustomerCare();
@@ -350,9 +360,11 @@ async function emailModal(template, id, after) {
       <div class="row" style="margin-top:8px"><input type="email" id="ccIn" placeholder="Add CC email" aria-label="Add CC email" style="flex:1"><button class="btn sm" id="ccAdd">Add CC</button></div></div>
     <label class="f">Subject<input id="mSub" value="${esc(pv.subject)}"></label>
     <label class="f">Message<textarea id="mBody">${esc(pv.text)}</textarea></label>
+    <div class="row"><input id="mAIi" placeholder="Optional: tell AI how to change it (e.g. shorter, friendlier)" style="flex:1"><button type="button" class="btn" id="mAI">✨ Improve with AI</button></div>
     <div class="row" style="justify-content:flex-end">${template === 'cover_client' ? '<button class="btn" id="mSkip">Skip client email</button>' : ''}<button class="btn" id="mClose">Cancel</button><button class="btn pri" id="mSend">Send email</button></div></div>`;
   $('#ccAdd').onclick = () => { const v = $('#ccIn').value.trim(); if (/^\S+@\S+\.\S+$/.test(v)) { extra.push(v); $('#ccIn').value = ''; $('#ccs').innerHTML = ccHtml(); } else toast('That email address looks wrong.', true); };
   $('#ccs').onclick = (e) => { const b = e.target.closest('[data-rm]'); if (b) { extra.splice(+b.dataset.rm, 1); $('#ccs').innerHTML = ccHtml(); } };
+  $('#mAI').onclick = async () => { const b = $('#mAI'); b.disabled = true; b.textContent = 'Drafting…'; try { const r = await callFn('ai', { action: 'draft', kind: template, text: $('#mBody').value, instructions: $('#mAIi').value }); $('#mBody').value = r.text; toast('AI draft ready. Check it, then Send.'); } catch (e) { toast(e.message, true); } b.disabled = false; b.textContent = '✨ Improve with AI'; };
   $('#mClose').onclick = () => (m.hidden = true);
   if ($('#mSkip')) $('#mSkip').onclick = async () => { await sb.from('covers').update({ client_email_status: 'Skipped' }).eq('id', id); m.hidden = true; toast('Client email skipped.'); after && after(); };
   $('#mSend').onclick = async () => {
@@ -378,12 +390,12 @@ async function pageHiring() {
     const s = $('#hS').value.toLowerCase(), r = $('#hR').value, t = $('#hT').value;
     const list = rows.filter((x) => (!s || [x.site, x.contract, x.candidate].join(' ').toLowerCase().includes(s)) && (!r || x.recruiter === r) && (!t || x.status === t));
     const inp = (x, f, type = 'text', extra = '') => edit ? `<input data-f="${f}" type="${type}" value="${esc(x[f] ?? '')}" ${extra} aria-label="${f}">` : esc(x[f] ?? '');
-    $('#hWrap').innerHTML = `<table><thead><tr><th>Raised</th><th>Site</th><th>Area Manager</th><th>Role</th><th>Rate £</th><th>DBS</th><th>Type</th><th>Recruiter</th><th>Status</th><th>Start</th><th>Candidate</th><th>Candidate email</th><th>Notes</th><th>Email</th></tr></thead><tbody>
+    $('#hWrap').innerHTML = `<table><thead><tr><th>Raised</th><th>Site</th><th>Area Manager</th><th>Role</th><th>Rate £</th><th>DBS</th><th>Type</th><th>Recruiter</th><th>Status</th><th>Start</th><th>Candidate</th><th>Candidate email</th><th>Source</th><th>Notes</th><th>Email</th></tr></thead><tbody>
       ${list.map((x) => `<tr data-id="${x.id}"><td>${inp(x, 'raised_on', 'date')}</td><td>${inp(x, 'site', 'text', 'list="siteList" style="min-width:200px"')}</td><td>${inp(x, 'area_manager')}</td><td>${inp(x, 'role')}</td><td>${inp(x, 'rate', 'text', 'style="min-width:70px"')}</td><td>${inp(x, 'dbs')}</td>
         <td>${edit ? `<select data-f="hire_type"><option ${x.hire_type === 'Permanent' ? 'selected' : ''}>Permanent</option><option ${x.hire_type === 'Cover' ? 'selected' : ''}>Cover</option></select>` : esc(x.hire_type)}</td>
         <td>${edit ? `<select data-f="recruiter">${recruiterOpts(x.recruiter)}</select>` : esc(x.recruiter)}</td>
         <td>${edit ? `<select data-f="status">${STATUSES.map((s2) => `<option ${s2 === x.status ? 'selected' : ''}>${s2}</option>`).join('')}</select>` : chip(x.status, SC)}</td>
-        <td>${inp(x, 'start_date', 'date')}</td><td>${inp(x, 'candidate')}</td><td>${inp(x, 'candidate_email', 'email')}</td><td>${inp(x, 'notes', 'text', 'style="min-width:180px"')}</td>
+        <td>${inp(x, 'start_date', 'date')}</td><td>${inp(x, 'candidate')}</td><td>${inp(x, 'candidate_email', 'email')}</td><td>${edit ? `<select data-f="source"><option></option>${SOURCES.map((o) => `<option ${x.source === o ? 'selected' : ''}>${o}</option>`).join('')}</select>` : esc(x.source || '')}</td><td>${inp(x, 'notes', 'text', 'style="min-width:180px"')}</td>
         <td style="white-space:nowrap">${chip(x.hire_email_status, EMAILC)} ${send && x.status === 'Filled' ? `<button class="btn sm" data-mail="${x.id}">Send</button>` : ''}${canFlag('recruitment', 'can_delete') ? ` <button class="btn sm" data-del="${x.id}" aria-label="Delete row">Delete</button>` : ''}</td></tr>`).join('')}</tbody></table>
       <div class="pager">${list.length} of ${rows.length} rows</div>`;
     bindEdits('hires', $('#hWrap'), (id, patch) => { Object.assign(rows.find((x) => x.id === id), patch); if ('status' in patch) draw(); });
@@ -1029,13 +1041,13 @@ async function pageDataMap() {
       <tr><td style="padding:2px 0;color:#667085">Open vacancies</td><td style="text-align:right">${r.open}</td></tr>
       <tr><td style="padding:2px 0;color:#667085">Audits</td><td style="text-align:right;color:#98A2B3">coming soon</td></tr></tbody></table>
       <div style="color:#667085;font-size:12px;margin:6px 0 8px">${esc(r.address || '')}</div>
-      <div style="display:flex;gap:6px"><a class="btn sm pri" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}">Directions</a><button class="btn sm" data-sitecard="${r.id}">Details</button></div></div>`; };
+      <div style="display:flex;gap:6px"><a class="btn sm pri" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}">Directions</a><button class="btn sm" data-sitecard="${r.id}">Covers</button><button class="btn sm" data-sitedoc="${r.id}" title="Documents">📄</button><button class="btn sm" data-sitecm="${r.id}" title="Comments">💬</button></div></div>`; };
   const group = L.markerClusterGroup ? L.markerClusterGroup({ maxClusterRadius: (z) => (z >= 12 ? 18 : z >= 10 ? 32 : 46), showCoverageOnHover: false,
     iconCreateFunction: (c) => { const n = c.getChildCount(), sz = n < 10 ? 32 : n < 40 ? 40 : 48; return L.divIcon({ className: '', iconSize: [sz, sz], html: `<div class="mcluster" style="width:${sz}px;height:${sz}px">${n}</div>` }); } }) : L.layerGroup();
   located.forEach((r) => L.marker([r.lat, r.lng], { icon: pin(r), title: r.name, keyboard: true }).bindPopup(card(r), { maxWidth: 320 }).addTo(group));
   group.addTo(map);
   if (!L.markerClusterGroup) toast('Clustering library unavailable – showing all pins without grouping.', true);
-  map.on('popupopen', () => $$('[data-sitecard]').forEach((b2) => (b2.onclick = () => siteDetails(rows.find((x) => String(x.id) === b2.dataset.sitecard), C, H))));
+  map.on('popupopen', () => { $$('[data-sitecard]').forEach((b2) => (b2.onclick = () => siteDetails(rows.find((x) => String(x.id) === b2.dataset.sitecard), C, H))); $$('[data-sitedoc]').forEach((b2) => (b2.onclick = () => openDocs('site', b2.dataset.sitedoc, rows.find((x) => String(x.id) === b2.dataset.sitedoc)?.name))); $$('[data-sitecm]').forEach((b2) => (b2.onclick = () => openComments('site', b2.dataset.sitecm, rows.find((x) => String(x.id) === b2.dataset.sitecm)?.name))); });
   const fit = () => { if (!$('#map')) return; map.invalidateSize(); if (located.length) map.fitBounds(located.map((r) => [r.lat, r.lng]), { padding: [30, 30], maxZoom: 12 }); };
   fit(); setTimeout(fit, 300); setTimeout(fit, 1000);
   if (window.ResizeObserver) new ResizeObserver(() => map.invalidateSize()).observe($('#map'));
@@ -1375,11 +1387,13 @@ async function pageContracts() {
   const draw = () => {
     const s = $('#kS').value.toLowerCase(), list = rows.filter((r) => !s || r.name.toLowerCase().includes(s));
     const inp = (x, f, type = 'text') => edit ? `<input data-f="${f}" type="${type}" value="${esc(x[f] ?? '')}" aria-label="${f}">` : esc(x[f] ?? '');
-    $('#kWrap').innerHTML = `<table><thead><tr><th>Contract</th><th>Sector</th><th>Region</th><th>Start</th><th>End</th><th>Year 1 £/hr</th><th>Year 2 £/hr</th><th>Uplift %</th><th>Monthly value Y1 £</th><th>Monthly value Y2 £</th><th>Weekly hours</th><th>Target margin %</th><th>Postcode</th><th>Area Manager</th><th>Customer Care</th><th>Year 2 due</th></tr></thead><tbody>
+    $('#kWrap').innerHTML = `<table><thead><tr><th>Contract</th><th>Sector</th><th>Region</th><th>Start</th><th>End</th><th>Year 1 £/hr</th><th>Year 2 £/hr</th><th>Uplift %</th><th>Monthly value Y1 £</th><th>Monthly value Y2 £</th><th>Weekly hours</th><th>Target margin %</th><th>Postcode</th><th>Area Manager</th><th>Customer Care</th><th>Year 2 due</th><th></th></tr></thead><tbody>
       ${list.map((x) => { const due = x.start_date ? new Date(new Date(x.start_date).setFullYear(new Date(x.start_date).getFullYear() + 1)) : null; const soon = due && due - new Date() < 30 * 864e5;
         return `<tr data-id="${x.id}"><td style="font-weight:600;min-width:220px">${esc(x.name)}</td><td>${inp(x, 'sector')}</td><td>${inp(x, 'region')}</td><td>${inp(x, 'start_date', 'date')}</td><td>${inp(x, 'end_date', 'date')}</td><td>${inp(x, 'year1_rate')}</td><td>${inp(x, 'year2_rate')}</td><td>${inp(x, 'uplift_pct')}</td><td>${inp(x, 'monthly_value')}</td><td>${inp(x, 'monthly_value_y2')}</td><td>${inp(x, 'weekly_hours')}</td><td>${inp(x, 'target_margin_pct')}</td><td>${inp(x, 'postcode')}</td><td>${inp(x, 'area_manager')}</td><td>${inp(x, 'ccm')}</td>
-        <td>${due ? `<span class="chip" style="--c:var(${soon ? '--prog' : '--hold'})">${due.toLocaleDateString('en-GB')}</span>` : '—'}</td></tr>`; }).join('')}</tbody></table><div class="pager">${list.length} contracts</div>`;
+        <td>${due ? `<span class="chip" style="--c:var(${soon ? '--prog' : '--hold'})">${due.toLocaleDateString('en-GB')}</span>` : '—'}</td><td style="white-space:nowrap"><button class="btn sm" data-kd="${x.id}" title="Documents">📄</button> <button class="btn sm" data-kc="${x.id}" title="Comments">💬</button></td></tr>`; }).join('')}</tbody></table><div class="pager">${list.length} contracts</div>`;
     bindEdits('contracts', $('#kWrap'));
+    $$('[data-kd]').forEach((b) => (b.onclick = () => openDocs('contract', b.dataset.kd, rows.find((r) => r.id === b.dataset.kd)?.name || 'Contract')));
+    $$('[data-kc]').forEach((b) => (b.onclick = () => openComments('contract', b.dataset.kc, rows.find((r) => r.id === b.dataset.kc)?.name || 'Contract')));
   };
   $('#kS').oninput = draw; if ($('#kExp')) $('#kExp').onclick = () => downloadCsv('contracts.csv', rows); draw();
 }
@@ -1554,7 +1568,7 @@ function drill(key) {
   const m = $('#modal'); m.hidden = false;
   const canX = isAdmin() || Object.values(S.perms).some((p) => p.can_export);
   m.innerHTML = `<div class="box" role="dialog" aria-modal="true" aria-label="${esc(d.title)}" style="width:min(1200px,100%)">
-    <div class="head" style="padding-bottom:12px"><div><div class="soft">Details</div><h1 style="font-size:19px">${esc(d.title)}</h1></div><div class="row"><input id="dq" placeholder="Filter rows" aria-label="Filter rows">${canX ? '<button class="btn" id="dX">Excel</button><button class="btn" id="dC">CSV</button>' : ''}<button class="btn" id="dP">Print</button><button class="btn pri" id="dClose">Close</button></div></div>
+    <div class="head" style="padding-bottom:12px"><div><div class="soft">Details</div><h1 style="font-size:19px">${esc(d.title)}</h1></div><div class="row"><input id="dq" placeholder="Filter rows" aria-label="Filter rows">${canX ? '<button class="btn" id="dX">Excel</button><button class="btn" id="dC">CSV</button>' : ''}<button class="btn" id="dAI">✨ Explain</button><button class="btn" id="dP">Print</button><button class="btn pri" id="dClose">Close</button></div></div>
     <div class="tablewrap" style="max-height:60vh"><table><thead><tr>${d.cols.map(([, l]) => `<th>${esc(l)}</th>`).join('')}</tr></thead><tbody id="dB"></tbody></table></div><div class="soft" id="dN"></div></div>`;
   const draw = () => { const q = $('#dq').value.toLowerCase(); const rows = d.rows.filter((r) => !q || d.cols.some(([k, , f]) => String(f ? f(r) : r[k] ?? '').toLowerCase().includes(q)));
     $('#dB').innerHTML = rows.slice(0, 1000).map((r) => `<tr>${d.cols.map(([k, , f]) => `<td>${esc(cellText(f ? f(r) : r[k]))}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${d.cols.length}" class="muted" style="padding:18px">No rows.</td></tr>`;
@@ -1563,6 +1577,7 @@ function drill(key) {
   if ($('#dX')) { $('#dX').onclick = () => exportRows(d.title.replace(/[^\w ]+/g, '').trim(), cur, d.cols); $('#dC').onclick = () => exportRows(d.title.replace(/[^\w ]+/g, '').trim(), cur, d.cols, 'csv'); }
   $('#dP').onclick = () => { const w = window.open('', '_blank'); w.document.write(`<title>${esc(d.title)}</title><style>body{font:12px system-ui;padding:20px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:4px 6px;text-align:left}</style><h2>${esc(d.title)}</h2><p>Crystal FM · ${new Date().toLocaleString('en-GB')}</p><table><tr>${d.cols.map(([, l]) => `<th>${esc(l)}</th>`).join('')}</tr>${cur.map((r) => `<tr>${d.cols.map(([k, , f]) => `<td>${esc(cellText(f ? f(r) : r[k]))}</td>`).join('')}</tr>`).join('')}</table>`); w.document.close(); w.print(); };
   $('#dClose').onclick = () => (m.hidden = true);
+  $('#dAI').onclick = () => { m.hidden = true; aiAsk(`Explain "${d.title}" (${d.rows.length} rows): what does it show, what stands out, and what needs my attention?`); };
 }
 document.addEventListener('click', (e) => { const el = e.target.closest('[data-drill]'); if (el && !e.target.closest('button,a,input,select')) drill(el.dataset.drill); });
 document.addEventListener('keydown', (e) => { const el = e.target.closest && e.target.closest('[data-drill]'); if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); drill(el.dataset.drill); } });
@@ -1654,11 +1669,12 @@ async function openAI() {
   $('#aiPanel').hidden = false; $('#aiIn').focus();
   const st = await aiStatus();
   $('#aiSt').innerHTML = st.connected ? `<span style="color:var(--filled)">●</span> Live · ${esc(st.provider)} · watching your data` : '<span style="color:var(--prog)">●</span> Not connected yet';
+  if (AI.msgs.length) { $('#aiSugg').innerHTML = ['Summarise this page', 'What needs my attention on this page?', '✨ Insights for this page'].map((s2) => `<button type="button">${s2}</button>`).join(''); $$('#aiSugg button').forEach((b) => (b.onclick = () => (b.textContent.startsWith('✨') ? (($('#aiSugg').innerHTML = ''), aiInsightsPanel()) : askAI(b.textContent)))); }
   if (!AI.msgs.length) {
     $('#aiMsgs').innerHTML = `<div class="aim bot">Hi ${esc(S.profile.full_name.split(' ')[0])}. I can read the live portal data you have access to and answer questions, spot problems and draft actions.${st.connected ? '' : `<br><br><b>AI isn't connected yet.</b> ${isAdmin() ? 'Go to Admin → AI to connect your API key.' : 'Ask Syed to connect it.'}`}</div>`;
-    const sug = ['Which sites need the most covers this month?', 'Any missed covers I should act on?', 'Which vacancies have been open longest?', ...(can('finance') ? ['Which contracts lost money last month and why?'] : []), 'Give me a 5-line summary for my boss'];
+    const sug = ['Summarise this page', 'What needs my attention on this page?', '✨ Insights for this page', 'Which sites need the most covers this month?', 'Any missed covers I should act on?', 'Which vacancies have been open longest?', ...(can('finance') ? ['Which contracts lost money last month and why?'] : []), 'Give me a 5-line summary for my boss'];
     $('#aiSugg').innerHTML = sug.map((s) => `<button type="button">${esc(s)}</button>`).join('');
-    $$('#aiSugg button').forEach((b) => (b.onclick = () => askAI(b.textContent)));
+    $$('#aiSugg button').forEach((b) => (b.onclick = () => (b.textContent.startsWith('✨') ? (($('#aiSugg').innerHTML = ''), aiInsightsPanel()) : askAI(b.textContent))));
   }
 }
 const mdLite = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^[-•] (.*)$/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`).replace(/\n/g, '<br>');
@@ -1667,7 +1683,7 @@ async function askAI(q) {
   AI.msgs.push({ role: 'user', content: q });
   $('#aiMsgs').insertAdjacentHTML('beforeend', `<div class="aim me">${esc(q)}</div><div class="aim bot typing" id="aiT"><span></span><span></span><span></span></div>`);
   $('#aiMsgs').scrollTop = 1e9;
-  try { const r = await callFn('ai', { action: 'chat', messages: AI.msgs, page: location.hash }); AI.msgs.push({ role: 'assistant', content: r.answer }); $('#aiT').outerHTML = `<div class="aim bot">${mdLite(r.answer)}</div>`; }
+  try { const r = await callFn('ai', { action: 'chat', messages: AI.msgs, page: location.hash, page_data: pageCtx() }); AI.msgs.push({ role: 'assistant', content: r.answer }); $('#aiT').outerHTML = `<div class="aim bot">${mdLite(r.answer)}</div>`; }
   catch (e) { AI.msgs.pop(); $('#aiT').outerHTML = `<div class="aim bot err">${esc(e.message)}</div>`; }
   $('#aiMsgs').scrollTop = 1e9;
 }
@@ -1791,6 +1807,276 @@ async function trackerSync() {
 }
 const trackerBtn = () => (isAdmin() || canFlag('recruitment', 'can_import') || canFlag('covers', 'can_import')) ? `<button class="btn" data-tk>${ICON('<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>')}Sync from tracker</button>` : '';
 document.addEventListener('click', (e) => { if (e.target.closest('[data-tk]')) trackerSync(); });
+
+/* =====================================================================
+   PHASES 2–5
+   ===================================================================== */
+
+/* ---------- P2: tables everywhere get sorting, column picker and saved views ---------- */
+const tableKey = (t) => location.hash.split('?')[0] + '|' + [...t.querySelectorAll('thead th')].map((th) => th.textContent.trim()).join('|').slice(0, 80);
+function enhanceTable(table) {
+  if (table._enh || !table.tHead || table.closest('.modal') && table.closest('.cmdk')) return; table._enh = true;
+  const key = tableKey(table), ths = [...table.tHead.rows[0].cells];
+  let hidden = []; try { hidden = JSON.parse(localStorage.getItem('cols:' + key) || '[]'); } catch (_) {}
+  const applyCols = () => { ths.forEach((th, i) => { const h = hidden.includes(i); th.style.display = h ? 'none' : ''; [...table.tBodies[0]?.rows || []].forEach((r) => { if (r.cells[i]) r.cells[i].style.display = h ? 'none' : ''; }); }); };
+  ths.forEach((th, i) => {
+    if (!th.textContent.trim() || th.querySelector('input')) return;
+    th.style.cursor = 'pointer'; th.title = 'Sort'; th.tabIndex = 0;
+    const sortNow = () => {
+      const dir = th.dataset.sort === 'asc' ? 'desc' : 'asc'; ths.forEach((x) => { delete x.dataset.sort; x.querySelector('.sarr')?.remove(); });
+      th.dataset.sort = dir; th.insertAdjacentHTML('beforeend', `<span class="sarr">${dir === 'asc' ? ' ▲' : ' ▼'}</span>`);
+      const val = (r) => { const c = r.cells[i]; if (!c) return ''; const el = c.querySelector('input,select'); const v = (el ? el.value : c.textContent).trim(); const n = parseFloat(v.replace(/[£,%\s]/g, '')); return /^-?[£\d.,%\s]+$/.test(v) && !isNaN(n) ? n : /^\d{4}-\d{2}-\d{2}/.test(v) ? v : v.toLowerCase(); };
+      const rows = [...table.tBodies[0].rows].filter((r) => r.cells.length > 1);
+      rows.sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * (dir === 'asc' ? 1 : -1); }).forEach((r) => table.tBodies[0].appendChild(r));
+    };
+    th.addEventListener('click', (e) => { if (!e.target.closest('input,button')) sortNow(); });
+    th.addEventListener('keydown', (e) => { if (e.key === 'Enter') sortNow(); });
+  });
+  const wrap = table.closest('.tablewrap'); if (!wrap || wrap.previousElementSibling?.classList?.contains('tbar')) { applyCols(); return; }
+  const bar = document.createElement('div'); bar.className = 'tbar';
+  bar.innerHTML = `<button class="btn sm" data-tb="cols">${ICON('<path d="M3 3h18v18H3zM9 3v18M15 3v18"/>')}Columns</button><button class="btn sm" data-tb="views">${ICON('<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>')}Views</button><button class="btn sm" data-tb="xls">${ICON('<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/>')}Excel</button>`;
+  wrap.before(bar);
+  const menu = (html) => { $$('.tmenu').forEach((m) => m.remove()); const m = document.createElement('div'); m.className = 'menu tmenu'; m.style.cssText = 'position:absolute;z-index:40;right:auto;top:auto'; m.innerHTML = html; bar.style.position = 'relative'; bar.appendChild(m); setTimeout(() => document.addEventListener('click', function off(e) { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('click', off); } }), 0); return m; };
+  bar.querySelector('[data-tb=cols]').onclick = () => { const m = menu(ths.map((th, i) => th.textContent.trim() && !th.querySelector('input') ? `<label style="display:flex;gap:8px;padding:5px 8px;cursor:pointer"><input type="checkbox" data-ci="${i}" ${hidden.includes(i) ? '' : 'checked'}> ${esc(th.textContent.replace(/[▲▼]/g, '').trim())}</label>` : '').join(''));
+    $$('[data-ci]', m).forEach((c) => (c.onchange = () => { const i = +c.dataset.ci; hidden = c.checked ? hidden.filter((x) => x !== i) : [...hidden, i]; try { localStorage.setItem('cols:' + key, JSON.stringify(hidden)); } catch (_) {} applyCols(); })); };
+  bar.querySelector('[data-tb=xls]').onclick = () => { const vis = ths.map((th, i) => [i, th.textContent.replace(/[▲▼]/g, '').trim()]).filter(([i, l]) => l && !hidden.includes(i));
+    const rows = [...table.tBodies[0].rows].filter((r) => r.cells.length > 1).map((r) => Object.fromEntries(vis.map(([i, l]) => { const c = r.cells[i]; const el = c?.querySelector('input,select'); return [l, (el ? el.value : c?.textContent || '').trim()]; })));
+    exportRows((document.querySelector('.head h1')?.textContent || 'Table').trim(), rows, vis.map(([, l]) => [l, l])); };
+  bar.querySelector('[data-tb=views]').onclick = async () => {
+    const page = location.hash.split('?')[0]; const { data: views, error } = await sb.from('saved_views').select('*').eq('page', page).order('name');
+    const m = menu(`${error ? '<div class="who soft">Run phase13 SQL to enable saved views.</div>' : ''}${(views || []).map((v) => `<div style="display:flex;align-items:center;gap:6px"><button data-v="${v.id}" style="flex:1">${esc(v.name)}</button><button data-vd="${v.id}" title="Delete" style="width:auto">✕</button></div>`).join('') || '<div class="who soft">No saved views yet.</div>'}<hr><button data-vs>＋ Save current filters and columns</button>`);
+    m.querySelector('[data-vs]').onclick = async () => { const name = prompt('Name this view'); if (!name) return; const fields = Object.fromEntries($$('.main .head select, .main .head input, .main .row select, .main .row input').filter((el) => el.id && el.type !== 'file' && el.type !== 'checkbox').map((el) => [el.id, el.value])); const { error: e2 } = await sb.from('saved_views').insert({ page, name, config: { fields, hidden, key } }); toast(e2 ? e2.message : 'View saved.', !!e2); m.remove(); };
+    $$('[data-v]', m).forEach((b) => (b.onclick = () => { const v = views.find((x) => String(x.id) === b.dataset.v); Object.entries(v.config.fields || {}).forEach(([id, val]) => { const el = document.getElementById(id); if (el && el.value !== val) { el.value = val; el.dispatchEvent(new Event('change', { bubbles: true })); el.dispatchEvent(new Event('input', { bubbles: true })); } }); if (v.config.key === key) { hidden = v.config.hidden || []; applyCols(); } toast(`View "${v.name}" applied.`); m.remove(); }));
+    $$('[data-vd]', m).forEach((b) => (b.onclick = async () => { await sb.from('saved_views').delete().eq('id', b.dataset.vd); m.remove(); toast('View deleted.'); }));
+  };
+  applyCols();
+}
+new MutationObserver(() => { const m = $('#main'); if (m) $$('.tablewrap table', m).forEach(enhanceTable); }).observe(document.getElementById('app'), { childList: true, subtree: true });
+
+const empty = (title, hint = '', action = '') => `<div class="empty"><div class="emptyicon">${ICON('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>')}</div><b>${esc(title)}</b>${hint ? `<span>${esc(hint)}</span>` : ''}${action}</div>`;
+
+/* ---------- P3: Recruitment pipeline (kanban) ---------- */
+const SOURCES = ['Indeed', 'Referral', 'Agency', 'Facebook', 'Gumtree', 'Walk-in', 'Rehire', 'Job board', 'Other'];
+async function pagePipeline() {
+  const edit = can('recruitment', 'edit');
+  const st = (S.pipe ||= { rec: '', q: '' });
+  shell(`<div class="head"><div><div class="soft">Recruitment</div><h1>Hiring pipeline</h1><p class="muted" style="margin:2px 0 0">Drag cards between columns to change status.</p></div><div class="row">
+    <label class="f">Search<input id="kq" value="${esc(st.q)}" placeholder="Site, role, candidate"></label><label class="f">Recruiter<select id="kr"><option value="">Everyone</option>${(S.settings.recruiters || []).map((r) => `<option ${st.rec === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>${edit ? '<button class="btn pri" id="kAdd">New vacancy</button>' : ''}</div></div>
+    <section class="grid" id="kK">${SKEL}</section><div class="kanban" id="kB"></div><section class="charts"><div class="card"><h2>Hires by source</h2><canvas id="kS"></canvas></div><div class="card"><h2>Days to hire by recruiter</h2><canvas id="kT"></canvas></div></section>`);
+  const [H, TL, TR] = await Promise.all([fetchAll('hires', '*'), sb.from('training_links').select('token,hire_id').then((r) => r.data || []), sb.from('training_results').select('token,passed').then((r) => r.data || [])]);
+  if (!$('#kB')) return;
+  const days = (h) => h.raised_on ? Math.round((Date.now() - new Date(h.raised_on)) / 864e5) : null, tth = (h) => h.raised_on && h.start_date ? Math.round((new Date(h.start_date) - new Date(h.raised_on)) / 864e5) : null;
+  const passed = new Set(TR.filter((r) => r.passed).map((r) => r.token)), sgByHire = new Map(); TL.forEach((l) => { if (l.hire_id) sgByHire.set(l.hire_id, sgByHire.get(l.hire_id) || passed.has(l.token)); });
+  const draw = () => {
+    st.q = $('#kq').value.toLowerCase(); st.rec = $('#kr').value;
+    const L = H.filter((h) => (!st.rec || h.recruiter === st.rec) && (!st.q || [h.site, h.role, h.candidate, h.contract].join(' ').toLowerCase().includes(st.q)));
+    const filled = L.filter((h) => h.status === 'Filled'), t = filled.map(tth).filter((x) => x != null && x >= 0), recent = filled.filter((h) => (h.start_date || h.raised_on || '') >= new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
+    const sgN = filled.filter((h) => sgByHire.has(h.id)), sgP = sgN.filter((h) => sgByHire.get(h.id)).length;
+    const k = (l, v, sub, c, rows) => `<div class="card kpi click" style="--c:var(${c})" ${dset('pk' + l.replace(/\W/g, ''), l, rows, COLS.hire)}><span>${l}</span><b>${v}</b><small>${sub}</small></div>`;
+    $('#kK').innerHTML = k('Open roles', L.filter((h) => h.status !== 'Filled').length, 'vacant, in progress, offer, on hold', '--unplanned', L.filter((h) => h.status !== 'Filled')) + k('Filled (30 days)', recent.length, 'started in the last 30 days', '--filled', recent) + k('Avg time to hire', t.length ? Math.round(t.reduce((a, b) => a + b, 0) / t.length) + ' d' : '—', `median ${t.length ? t.sort((a, b) => a - b)[Math.floor(t.length / 2)] : '—'} days`, '--offer', filled) + k('Oldest open', Math.max(0, ...L.filter((h) => h.status !== 'Filled').map((h) => days(h) || 0)) + ' d', 'since raised', '--danger', L.filter((h) => h.status !== 'Filled').sort((a, b) => (days(b) || 0) - (days(a) || 0))) + k('Safeguarding done', sgN.length ? Math.round(sgP / sgN.length * 100) + '%' : '—', `${sgP} of ${sgN.length} new hires passed`, '--raised', sgN);
+    const COLSK = [['Vacant', '--unplanned'], ['In Progress', '--prog'], ['Offer', '--offer'], ['Filled', '--filled'], ['On Hold', '--hold']];
+    $('#kB').innerHTML = COLSK.map(([s2, c]) => { const items = L.filter((h) => (h.status || 'Vacant') === s2 && (s2 !== 'Filled' || recent.includes(h)));
+      return `<section class="kcol" data-col="${s2}"><header><span class="chip" style="--c:var(${c})">${s2}</span><b>${items.length}</b>${s2 === 'Filled' ? '<span class="soft" style="font-size:11px">last 30 days</span>' : ''}</header><div class="kitems">${items.map((h) => `<article class="kcard" draggable="${edit}" data-id="${h.id}"><b>${esc(h.site || 'Site not set')}</b><span class="soft">${esc(h.role || '')}${h.headcount > 1 ? ' ×' + h.headcount : ''}</span>${h.candidate ? `<span>👤 ${esc(h.candidate)}</span>` : ''}<div class="kmeta"><span>${esc(h.recruiter || 'Unassigned')}</span>${h.source ? `<span class="chip" style="--c:var(--planned)">${esc(h.source)}</span>` : ''}<span class="${(days(h) || 0) > 21 && s2 !== 'Filled' ? 'err' : 'soft'}">${days(h) ?? ''}d</span></div></article>`).join('') || '<div class="soft" style="padding:10px;font-size:12px">Nothing here</div>'}</div></section>`; }).join('');
+    if (edit) {
+      $$('.kcard').forEach((c) => { c.ondragstart = (e) => { e.dataTransfer.setData('text', c.dataset.id); c.classList.add('drag'); }; c.ondragend = () => c.classList.remove('drag'); });
+      $$('.kcol').forEach((col) => { col.ondragover = (e) => { e.preventDefault(); col.classList.add('over'); }; col.ondragleave = () => col.classList.remove('over');
+        col.ondrop = async (e) => { e.preventDefault(); col.classList.remove('over'); const id = e.dataTransfer.getData('text'), status = col.dataset.col, h = H.find((x) => x.id === id); if (!h || h.status === status) return;
+          const patch = { status }; if (status === 'Filled' && !h.start_date) patch.start_date = new Date().toISOString().slice(0, 10);
+          const { error } = await sb.from('hires').update(patch).eq('id', id); if (error) return toast(error.message, true); Object.assign(h, patch); toast(`${h.site}: moved to ${status}.`); draw(); }; });
+    }
+    $$('.kcard').forEach((c) => c.addEventListener('dblclick', () => openComments('hire', c.dataset.id, H.find((h) => h.id === c.dataset.id)?.site || 'Vacancy')));
+    S.charts.forEach((x) => x.destroy()); S.charts = [];
+    Chart.defaults.color = cssv('--muted'); Chart.defaults.borderColor = cssv('--border');
+    const bySrc = {}; filled.forEach((h) => { const s2 = h.source || 'Not recorded'; bySrc[s2] = (bySrc[s2] || 0) + 1; });
+    S.charts.push(new Chart($('#kS'), { type: 'doughnut', data: { labels: Object.keys(bySrc), datasets: [{ data: Object.values(bySrc), backgroundColor: ['--acc', '--filled', '--prog', '--raised', '--unplanned', '--offer', '--planned', '--hold', '--danger', '--soft'].map(cssv), borderWidth: 0 }] }, options: { cutout: '60%' } }));
+    const byRec = {}; filled.forEach((h) => { const x = tth(h); if (x != null && x >= 0) (byRec[h.recruiter || 'Unassigned'] ||= []).push(x); });
+    const rr = Object.entries(byRec).map(([r, a]) => [r, Math.round(a.reduce((x, y) => x + y, 0) / a.length)]).sort((a, b) => a[1] - b[1]);
+    S.charts.push(new Chart($('#kT'), { type: 'bar', data: { labels: rr.map((x) => x[0]), datasets: [{ data: rr.map((x) => x[1]), backgroundColor: cssv('--offer'), borderRadius: 6 }] }, options: { indexAxis: 'y', plugins: { legend: { display: false } } } }));
+  };
+  $('#kq').oninput = draw; $('#kr').onchange = draw;
+  if ($('#kAdd')) $('#kAdd').onclick = () => { location.hash = '#/hiring'; let n = 0; const t2 = setInterval(() => { const el = $('#hAdd'); if (el || ++n > 40) { clearInterval(t2); el && el.click(); } }, 150); };
+  draw();
+}
+
+/* ---------- P3: Live cover board + cover cost ---------- */
+const shiftHours = (s) => { const m = String(s || '').toLowerCase().match(/(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\s*[-–to]+\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?/); if (!m) return null; const t = (h, mi, ap) => { h = +h; if (ap === 'pm' && h < 12) h += 12; if (ap === 'am' && h === 12) h = 0; return h + (+mi || 0) / 60; }; let a = t(m[1], m[2], m[3] || m[6]), b = t(m[4], m[5], m[6]); if (b <= a) b += 12; const d = b - a; return d > 0 && d < 16 ? Math.round(d * 100) / 100 : null; };
+const coverDays = (c) => c.date_from ? Math.max(1, Math.round((new Date(c.date_to || c.date_from) - new Date(c.date_from)) / 864e5) + 1) : 1;
+const coverCost = (c) => c.cost != null ? +c.cost : (() => { const h = c.hours != null ? +c.hours : shiftHours(c.shift); return h && c.rate ? Math.round(h * +c.rate * coverDays(c) * 100) / 100 : null; })();
+async function pageCoverBoard() {
+  const edit = can('covers', 'edit');
+  shell(`<div class="head"><div><div class="soft">Covers</div><h1>Live cover board</h1><p class="muted" style="margin:2px 0 0">Today and the next two days. Red cards still need a cover cleaner.</p></div><div class="row"><span class="soft" id="cbAt"></span></div></div>
+    <section class="grid" id="cbK">${SKEL}</section><div class="kanban" id="cbB" style="grid-template-columns:repeat(3,minmax(260px,1fr))"></div>
+    <section class="charts"><div class="card"><h2>Cover cost by month</h2><canvas id="cbC"></canvas></div><div class="card"><h2>Most expensive sites (this month)</h2><div id="cbS"></div></div></section>`);
+  const d0 = new Date().toISOString().slice(0, 10), d = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10), y1 = new Date(); y1.setMonth(y1.getMonth() - 5); y1.setDate(1);
+  const [live, hist] = await Promise.all([fetchAll('covers', '*', (q) => q.lte('date_from', d(2)).gte('date_to', d0)), fetchAll('covers', 'id,date_from,date_to,site,shift,rate,hours,cost,cover_cleaner,notes', (q) => q.gte('date_from', y1.toISOString().slice(0, 10)))]);
+  const live2 = [...live, ...(await fetchAll('covers', '*', (q) => q.is('date_to', null).gte('date_from', d0).lte('date_from', d(2))))];
+  if (!$('#cbB')) return;
+  const L = Object.values(Object.fromEntries(live2.map((c) => [c.id, c])));
+  const on = (day) => L.filter((c) => c.date_from <= day && (c.date_to || c.date_from) >= day);
+  const unf = (c) => coverState(c) === 'missed';
+  const mo = d0.slice(0, 7), thisM = hist.filter((c) => c.date_from.startsWith(mo)), costM = thisM.reduce((s2, c) => s2 + (coverCost(c) || 0), 0), unknown = thisM.filter((c) => coverCost(c) == null).length;
+  const k = (l, v, sub, c, rows) => `<div class="card kpi click" style="--c:var(${c})" ${dset('cb' + l.replace(/\W/g, ''), l, rows, [...COLS.cover, ['shift', 'Shift'], ['cost', 'Cost £', (r) => coverCost(r) ?? '']])}><span>${l}</span><b>${v}</b><small>${sub}</small></div>`;
+  $('#cbK').innerHTML = k('Unfilled today', on(d0).filter(unf).length, 'no cover cleaner yet', '--danger', on(d0).filter(unf)) + k('Unfilled tomorrow', on(d(1)).filter(unf).length, 'act today', '--prog', on(d(1)).filter(unf)) + k('Covers today', on(d0).length, `${on(d0).filter((c) => !unf(c)).length} filled`, '--acc', on(d0)) + k('Cover cost this month', money(costM), unknown ? `${unknown} covers without shift or rate` : 'from shift hours × rate', '--raised', thisM);
+  $('#cbAt').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' · refreshes every minute';
+  $('#cbB').innerHTML = [d0, d(1), d(2)].map((day, i) => { const items = on(day).sort((a, b) => unf(b) - unf(a));
+    return `<section class="kcol"><header><b>${i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : new Date(day).toLocaleDateString('en-GB', { weekday: 'long' })}</b><span class="soft">${new Date(day).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span><span class="chip" style="--c:var(${items.filter(unf).length ? '--danger' : '--filled'});margin-left:auto">${items.filter(unf).length} unfilled</span></header><div class="kitems">${items.map((c) => `<article class="kcard ${unf(c) ? 'kred' : ''}"><b>${esc(c.site || 'Site not set')}</b><span class="soft">${esc(c.shift || 'Shift not set')} · ${esc(c.kind)}</span><span>${unf(c) ? '<b class="err">UNFILLED</b>' : '✓ ' + esc(c.cover_cleaner)}</span><span class="soft" style="font-size:12px">Covering ${esc(c.absent_cleaner || '—')}</span>${edit ? `<div class="kmeta"><input data-cc="${c.id}" placeholder="${unf(c) ? 'Assign cover cleaner' : 'Change cleaner'}" value="${unf(c) ? '' : esc(c.cover_cleaner || '')}" aria-label="Cover cleaner"></div>` : ''}</article>`).join('') || '<div class="soft" style="padding:10px">No covers</div>'}</div></section>`; }).join('');
+  $$('[data-cc]').forEach((inp) => (inp.onchange = async () => { const { error } = await sb.from('covers').update({ cover_cleaner: inp.value.trim() || null }).eq('id', inp.dataset.cc); toast(error ? error.message : 'Cover cleaner saved.', !!error); if (!error) pageCoverBoard(); }));
+  Chart.defaults.color = cssv('--muted'); Chart.defaults.borderColor = cssv('--border');
+  const ms = [...Array(6)].map((_, i) => { const x = new Date(); x.setDate(1); x.setMonth(x.getMonth() - 5 + i); return x.toISOString().slice(0, 7); });
+  S.charts.push(new Chart($('#cbC'), { type: 'bar', data: { labels: ms.map((m) => MN[+m.slice(5) - 1]), datasets: [{ label: 'Cover cost £', data: ms.map((m) => Math.round(hist.filter((c) => c.date_from.startsWith(m)).reduce((s2, c) => s2 + (coverCost(c) || 0), 0))), backgroundColor: cssv('--raised'), borderRadius: 6 }] }, options: { plugins: { legend: { display: false } } } }));
+  const bySite = {}; thisM.forEach((c) => { const v = coverCost(c); if (v) bySite[c.site || '—'] = (bySite[c.site || '—'] || 0) + v; });
+  $('#cbS').innerHTML = `<div class="list">${Object.entries(bySite).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([n, v]) => `<div><span>${esc(n)}</span><b>${money(v)}</b></div>`).join('') || empty('No costed covers this month', 'Add shift times and rates on Covers to see costs.')}</div>`;
+  clearInterval(S.cbTimer); S.cbTimer = setInterval(() => { if (location.hash.startsWith('#/cover-board') && $('#modal').hidden && !document.activeElement?.matches('input')) pageCoverBoard(); else if (!location.hash.startsWith('#/cover-board')) clearInterval(S.cbTimer); }, 60000);
+}
+
+/* ---------- P4: Operations (audits, complaints, supplier orders, small-order charges) ---------- */
+const OPS = {
+  audits: { label: 'Site audits', order: 'audit_date', fields: [['site', 'Site', 'site'], ['audit_date', 'Date', 'date'], ['auditor', 'Auditor', 'text'], ['score', 'Score %', 'number'], ['result', 'Result', ['Pass', 'Improve', 'Fail']], ['issues', 'Issues found', 'textarea'], ['actions', 'Actions', 'textarea'], ['due_date', 'Actions due', 'date']] },
+  complaints: { label: 'Complaints', order: 'received_on', fields: [['site', 'Site', 'site'], ['received_on', 'Received', 'date'], ['category', 'Category', ['Standards', 'Missed clean', 'Staff conduct', 'Supplies', 'Security', 'Invoice', 'Other']], ['severity', 'Severity', ['Low', 'Medium', 'High']], ['description', 'What happened', 'textarea'], ['status', 'Status', ['Open', 'In progress', 'Resolved']], ['owner', 'Owner', 'text'], ['resolved_on', 'Resolved on', 'date']] },
+  supplier_orders: { label: 'Supplier orders', order: 'order_date', fields: [['site', 'Site', 'site'], ['supplier', 'Supplier', 'text'], ['order_date', 'Order date', 'date'], ['value', 'Order value £', 'number'], ['small_order_charge', 'Small-order charge £', 'number'], ['delivery_charge', 'Delivery charge £', 'number'], ['ordered_by', 'Ordered by', 'text'], ['notes', 'Notes', 'textarea']] },
+};
+async function pageOperations() {
+  const edit = can('operations', 'edit'), st = (S.ops ||= { tab: 'audits', q: '' });
+  const TABS = [['audits', 'Site audits'], ['complaints', 'Complaints'], ['supplier_orders', 'Supplier orders'], ['charges', 'Small-order charges']];
+  shell(`<div class="head"><div><div class="soft">Operations</div><h1>${TABS.find((t) => t[0] === st.tab)[1]}</h1></div><div class="row"><label class="f">Search<input id="oq" value="${esc(st.q)}" placeholder="Site, supplier, owner…"></label>${edit && st.tab !== 'charges' ? '<button class="btn pri" id="oAdd">Add</button>' : ''}</div></div>
+    <div class="tabs" role="tablist">${TABS.map(([k2, l]) => `<button role="tab" data-ot="${k2}" aria-selected="${st.tab === k2}" class="${st.tab === k2 ? 'on' : ''}">${l}</button>`).join('')}</div><div id="oBody2">${SKEL}</div>${siteList()}`);
+  $$('[data-ot]').forEach((b) => (b.onclick = () => { st.tab = b.dataset.ot; pageOperations(); }));
+  const table = st.tab === 'charges' ? 'supplier_orders' : st.tab, cfg = OPS[table];
+  const { data, error } = await sb.from(table).select('*').order(cfg.order, { ascending: false }).limit(2000);
+  if (!$('#oBody2')) return;
+  if (error) { $('#oBody2').innerHTML = `<div class="card">${empty('Operations tables not set up yet', 'Run phase13-super-portal.sql in Supabase, then refresh.')}</div>`; return; }
+  const q = () => ($('#oq').value || '').toLowerCase();
+  const rowsF = () => data.filter((r) => !q() || Object.values(r).join(' ').toLowerCase().includes(q()));
+  const k = (l, v, sub, c, rows) => `<div class="card kpi click" style="--c:var(${c})" ${dset('ok' + l.replace(/\W/g, ''), l, rows, cfg.fields.map(([f, l2]) => [f, l2]))}><span>${l}</span><b>${v}</b><small>${sub}</small></div>`;
+  const m30 = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const draw = () => {
+    st.q = q(); const R = rowsF();
+    let kpis = '';
+    if (table === 'audits') { const r30 = R.filter((r) => r.audit_date >= m30), avg = r30.length ? Math.round(r30.reduce((a, b) => a + (+b.score || 0), 0) / r30.length) : null; kpis = k('Audits (30 days)', r30.length, 'carried out', '--acc', r30) + k('Average score', avg == null ? '—' : avg + '%', 'last 30 days', '--filled', r30) + k('Failed', R.filter((r) => r.result === 'Fail').length, 'all time', '--danger', R.filter((r) => r.result === 'Fail')) + k('Actions overdue', R.filter((r) => r.due_date && r.due_date < new Date().toISOString().slice(0, 10) && r.result !== 'Pass').length, 'past due date', '--prog', R.filter((r) => r.due_date && r.due_date < new Date().toISOString().slice(0, 10) && r.result !== 'Pass')); }
+    if (table === 'complaints') { const open = R.filter((r) => r.status !== 'Resolved'), res = R.filter((r) => r.resolved_on && r.received_on), avgD = res.length ? Math.round(res.reduce((a, r) => a + (new Date(r.resolved_on) - new Date(r.received_on)) / 864e5, 0) / res.length) : null; kpis = k('Open complaints', open.length, `${open.filter((r) => r.severity === 'High').length} high severity`, '--danger', open) + k('Last 30 days', R.filter((r) => r.received_on >= m30).length, 'received', '--acc', R.filter((r) => r.received_on >= m30)) + k('Avg days to resolve', avgD ?? '—', 'resolved complaints', '--filled', res) + k('Repeat sites', Object.values(R.reduce((o, r) => ((o[r.site] = (o[r.site] || 0) + 1), o), {})).filter((n) => n > 1).length, '2+ complaints', '--prog', R); }
+    if (table === 'supplier_orders') { const mo = new Date().toISOString().slice(0, 7), M = R.filter((r) => (r.order_date || '').startsWith(mo)); kpis = k('Orders this month', M.length, money(M.reduce((a, r) => a + (+r.value || 0), 0)) + ' total', '--acc', M) + k('Small-order charges', money(M.reduce((a, r) => a + (+r.small_order_charge || 0), 0)), 'this month · target £0', '--danger', M.filter((r) => +r.small_order_charge > 0)) + k('Delivery charges', money(M.reduce((a, r) => a + (+r.delivery_charge || 0), 0)), 'this month', '--prog', M.filter((r) => +r.delivery_charge > 0)); }
+    if (st.tab === 'charges') {
+      const ms = [...Array(12)].map((_, i) => { const x = new Date(); x.setDate(1); x.setMonth(x.getMonth() - 11 + i); return x.toISOString().slice(0, 7); });
+      const ch = R.filter((r) => +r.small_order_charge > 0 || +r.delivery_charge > 0), bySite = {}, byWho = {}; ch.forEach((r) => { const v = (+r.small_order_charge || 0) + (+r.delivery_charge || 0); bySite[r.site || '—'] = (bySite[r.site || '—'] || 0) + v; byWho[r.ordered_by || 'Unknown'] = (byWho[r.ordered_by || 'Unknown'] || 0) + v; });
+      $('#oBody2').innerHTML = `<div style="display:flex;flex-direction:column;gap:14px"><section class="grid">${kpis}${k('Charges (12 months)', money(ch.reduce((a, r) => a + (+r.small_order_charge || 0) + (+r.delivery_charge || 0), 0)), `${ch.length} orders with a charge`, '--raised', ch)}</section>
+        <section class="charts"><div class="card wide"><h2>Small-order and delivery charges by month · target £0</h2><canvas id="ocM" height="70"></canvas></div><div class="card"><h2>Sites paying most charges</h2><div class="list">${Object.entries(bySite).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([n, v]) => `<div><span>${esc(n)}</span><b>${money(v)}</b></div>`).join('') || empty('No charges', 'Log orders in Supplier orders.')}</div></div><div class="card"><h2>Charges by who ordered</h2><div class="list">${Object.entries(byWho).sort((a, b) => b[1] - a[1]).map(([n, v]) => `<div><span>${esc(n)}</span><b>${money(v)}</b></div>`).join('') || empty('No charges yet')}</div></div></section></div>`;
+      Chart.defaults.color = cssv('--muted'); Chart.defaults.borderColor = cssv('--border');
+      S.charts.push(new Chart($('#ocM'), { type: 'bar', data: { labels: ms.map((m) => MN[+m.slice(5) - 1] + ' ' + m.slice(2, 4)), datasets: [{ label: 'Small-order', data: ms.map((m) => R.filter((r) => (r.order_date || '').startsWith(m)).reduce((a, r) => a + (+r.small_order_charge || 0), 0)), backgroundColor: cssv('--danger'), stack: 's', borderRadius: 4 }, { label: 'Delivery', data: ms.map((m) => R.filter((r) => (r.order_date || '').startsWith(m)).reduce((a, r) => a + (+r.delivery_charge || 0), 0)), backgroundColor: cssv('--prog'), stack: 's', borderRadius: 4 }] }, options: { scales: { x: { stacked: true }, y: { stacked: true } } } }));
+      return;
+    }
+    const show = cfg.fields.filter(([, , t]) => t !== 'textarea' || table === 'complaints').slice(0, 8);
+    $('#oBody2').innerHTML = `<div style="display:flex;flex-direction:column;gap:14px"><section class="grid">${kpis}</section><div class="tablewrap"><table><thead><tr>${show.map(([, l]) => `<th>${l}</th>`).join('')}<th></th></tr></thead><tbody>${R.map((r) => `<tr>${show.map(([f, , t]) => `<td>${f === 'result' || f === 'severity' || f === 'status' ? chip(r[f], { Pass: '--filled', Improve: '--prog', Fail: '--danger', Low: '--hold', Medium: '--prog', High: '--danger', Open: '--danger', 'In progress': '--prog', Resolved: '--filled' }) : t === 'number' && /£/.test(cfg.fields.find((x) => x[0] === f)[1]) ? money(+r[f] || 0) : esc(String(r[f] ?? '').slice(0, 120))}</td>`).join('')}<td style="white-space:nowrap">${edit ? `<button class="btn sm" data-oe="${r.id}">Edit</button> ` : ''}<button class="btn sm" data-oc="${r.id}">💬</button></td></tr>`).join('') || `<tr><td colspan="${show.length + 1}">${empty('Nothing recorded yet', edit ? 'Click Add to record the first one.' : '')}</td></tr>`}</tbody></table></div></div>`;
+    $$('[data-oe]').forEach((b) => (b.onclick = () => opsForm(table, data.find((x) => x.id === b.dataset.oe))));
+    $$('[data-oc]').forEach((b) => (b.onclick = () => { const r = data.find((x) => x.id === b.dataset.oc); openComments(table, r.id, `${cfg.label}: ${r.site || ''}`); }));
+  };
+  $('#oq').oninput = draw; if ($('#oAdd')) $('#oAdd').onclick = () => opsForm(table, null);
+  draw();
+}
+function opsForm(table, row) {
+  const cfg = OPS[table], m = $('#modal'); m.hidden = false;
+  const inp = ([f, l, t]) => { const v = row?.[f] ?? (t === 'date' && /date|received/.test(f) && !/due|resolved/.test(f) ? new Date().toISOString().slice(0, 10) : '');
+    if (Array.isArray(t)) return `<label class="f">${l}<select name="${f}">${['', ...t].map((o) => `<option ${o === v ? 'selected' : ''}>${o}</option>`).join('')}</select></label>`;
+    if (t === 'textarea') return `<label class="f" style="grid-column:1/-1">${l}<textarea name="${f}" style="min-height:80px;font-family:var(--font)">${esc(v)}</textarea></label>`;
+    return `<label class="f">${l}<input name="${f}" type="${t === 'site' ? 'text' : t}" ${t === 'site' ? 'list="siteList" required' : ''} value="${esc(v)}" ${t === 'number' ? 'step="0.01"' : ''}></label>`; };
+  m.innerHTML = `<form class="box" id="opF" role="dialog" aria-modal="true" aria-label="${cfg.label}"><h2>${row ? 'Edit' : 'Add'} · ${cfg.label}</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">${cfg.fields.map(inp).join('')}</div>
+    <div class="row" style="justify-content:flex-end">${row ? '<button type="button" class="btn" id="opD">Delete</button>' : ''}<button type="button" class="btn" id="opX">Cancel</button><button class="btn pri">Save</button></div></form>${siteList()}`;
+  $('#opX').onclick = () => (m.hidden = true);
+  $('#opF').onsubmit = async (e) => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); Object.keys(f).forEach((k2) => { if (f[k2] === '') f[k2] = null; }); const s2 = S.sites.find((x) => x.name.toLowerCase() === (f.site || '').toLowerCase()); f.site_id = s2?.id || null;
+    const { error } = row ? await sb.from(table).update(f).eq('id', row.id) : await sb.from(table).insert(f); if (error) return toast(error.message, true); m.hidden = true; toast('Saved.'); pageOperations(); };
+  if ($('#opD')) $('#opD').onclick = async () => { if (!confirm('Delete this record?')) return; const { error } = await sb.from(table).delete().eq('id', row.id); if (error) return toast(error.message, true); m.hidden = true; pageOperations(); };
+}
+
+/* ---------- P4: Documents per site / contract ---------- */
+async function openDocs(type, id, label) {
+  const m = $('#modal'); m.hidden = false; m.innerHTML = `<div class="box" role="dialog" aria-modal="true" aria-label="Documents"><h2>Documents · ${esc(label)}</h2><div id="dcL">${SKEL}</div><div class="row" style="justify-content:space-between">${can('operations', 'edit') || can('contracts', 'edit') ? '<label class="btn pri" style="cursor:pointer">Upload files<input type="file" id="dcU" multiple hidden></label>' : '<span></span>'}<button class="btn" id="dcX">Close</button></div></div>`;
+  $('#dcX').onclick = () => (m.hidden = true);
+  const load = async () => { const { data, error } = await sb.from('documents').select('*').eq('record_type', type).eq('record_id', id).order('uploaded_at', { ascending: false });
+    if (error) { $('#dcL').innerHTML = empty('Documents not set up yet', 'Run phase13-super-portal.sql.'); return; }
+    $('#dcL').innerHTML = data.length ? `<div class="list">${data.map((d) => `<div><span>📄 ${esc(d.name)}<br><span class="soft">${new Date(d.uploaded_at).toLocaleDateString('en-GB')} · ${Math.max(1, Math.round((d.size || 0) / 1024))} KB</span></span><span style="display:flex;gap:6px"><button class="btn sm" data-dl="${esc(d.path)}">Open</button>${can('operations', 'edit') || can('contracts', 'edit') ? `<button class="btn sm" data-dd="${d.id}" data-dp="${esc(d.path)}">Delete</button>` : ''}</span></div>`).join('')}</div>` : empty('No documents yet', 'Upload contracts, specs, audits, risk assessments or COSHH sheets.');
+    $$('[data-dl]').forEach((b) => (b.onclick = async () => { const { data: u, error: e2 } = await sb.storage.from('documents').createSignedUrl(b.dataset.dl, 120); if (e2) return toast(e2.message, true); window.open(u.signedUrl, '_blank'); }));
+    $$('[data-dd]').forEach((b) => (b.onclick = async () => { if (!confirm('Delete this file?')) return; await sb.storage.from('documents').remove([b.dataset.dp]); await sb.from('documents').delete().eq('id', b.dataset.dd); load(); })); };
+  if ($('#dcU')) $('#dcU').onchange = async (e) => { for (const f of e.target.files) { if (f.size > 20 * 1024 * 1024) { toast(`${f.name} is over 20 MB.`, true); continue; } const path = `${type}/${id}/${Date.now()}-${f.name.replace(/[^\w.\-]+/g, '_')}`;
+      const { error } = await sb.storage.from('documents').upload(path, f); if (error) { toast(error.message, true); continue; } await sb.from('documents').insert({ record_type: type, record_id: id, name: f.name, path, size: f.size }); } toast('Uploaded.'); load(); };
+  load();
+}
+
+/* ---------- P4: Comments with @mentions ---------- */
+async function openComments(type, id, label) {
+  const m = $('#modal'); m.hidden = false;
+  if (!S.people) S.people = (await sb.from('profiles').select('id,full_name').eq('active', true)).data || [];
+  m.innerHTML = `<div class="box" role="dialog" aria-modal="true" aria-label="Comments"><h2>💬 ${esc(label)}</h2><div id="cmL" class="cmlist">${SKEL}</div>
+    <div style="position:relative"><textarea id="cmT" placeholder="Write a comment. Type @ to mention someone." style="min-height:70px;font-family:var(--font)"></textarea><div class="menu" id="cmM" hidden style="top:auto;bottom:100%;left:0;right:auto"></div></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" id="cmX">Close</button><button class="btn pri" id="cmS">Post</button></div></div>`;
+  $('#cmX').onclick = () => (m.hidden = true);
+  const load = async () => { const { data, error } = await sb.from('comments').select('*, profiles(full_name)').eq('record_type', type).eq('record_id', String(id)).order('created_at');
+    if (error) { $('#cmL').innerHTML = empty('Comments not set up yet', 'Run phase13-super-portal.sql.'); return; }
+    $('#cmL').innerHTML = data.length ? data.map((c) => `<div class="cm"><div class="avatar" style="width:28px;height:28px;font-size:10px;cursor:default">${esc((c.profiles?.full_name || '?').split(' ').map((x) => x[0]).slice(0, 2).join(''))}</div><div><b>${esc(c.profiles?.full_name || 'Someone')}</b> <span class="soft">${new Date(c.created_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</span><div>${esc(c.body).replace(/@([\w ]+?)(?=\s|$|[.,!?])/g, '<b style="color:var(--acc)">@$1</b>')}</div></div></div>`).join('') : empty('No comments yet', 'Start the conversation. Mention a colleague with @.');
+    $('#cmL').scrollTop = 1e9; };
+  const t = $('#cmT'), menu = $('#cmM');
+  t.oninput = () => { const pos = t.selectionStart, before = t.value.slice(0, pos), mm = before.match(/@([\w]*)$/); if (!mm) { menu.hidden = true; return; }
+    const list = S.people.filter((p) => p.full_name.toLowerCase().includes(mm[1].toLowerCase())).slice(0, 6); if (!list.length) { menu.hidden = true; return; }
+    menu.hidden = false; menu.innerHTML = list.map((p) => `<button data-pm="${p.id}">${esc(p.full_name)}</button>`).join('');
+    $$('[data-pm]', menu).forEach((b) => (b.onclick = () => { const p = S.people.find((x) => x.id === b.dataset.pm); t.value = before.replace(/@([\w]*)$/, '@' + p.full_name + ' ') + t.value.slice(pos); menu.hidden = true; t.focus(); })); };
+  $('#cmS').onclick = async () => { const body = t.value.trim(); if (!body) return; const mentions = S.people.filter((p) => body.includes('@' + p.full_name)).map((p) => p.id);
+    const { error } = await sb.from('comments').insert({ record_type: type, record_id: String(id), record_label: label, body, mentions }); if (error) return toast(error.message, true); t.value = ''; load(); if (mentions.length) toast(`${mentions.length} person${mentions.length > 1 ? 's' : ''} notified.`); };
+  load();
+}
+
+/* ---------- P5: AI everywhere ---------- */
+const pageCtx = () => ({ title: ($('.head h1')?.textContent || '').trim(), page: location.hash, kpis: $$('.kpi').slice(0, 14).map((k2) => ({ label: k2.querySelector('span')?.textContent?.trim(), value: k2.querySelector('b')?.textContent?.trim(), note: k2.querySelector('small')?.textContent?.trim() })),
+  datasets: Object.values(S.drills || {}).slice(0, 12).map((d) => ({ title: d.title, rows: d.rows.length, sample: d.rows.slice(0, 12).map((r) => Object.fromEntries(d.cols.slice(0, 8).map(([k2, l, f]) => [l, cellText(f ? f(r) : r[k2])]))) })) });
+function aiAsk(q) { if (!$('#aiFab')) return; openAI().then(() => askAI(q)); }
+async function aiInsightsPanel() {
+  $('#aiMsgs').insertAdjacentHTML('beforeend', '<div class="aim bot typing" id="aiT2"><span></span><span></span><span></span></div>'); $('#aiMsgs').scrollTop = 1e9;
+  try { const r = await callFn('ai', { action: 'insights', page: location.hash, page_data: pageCtx() }); const IC = { risk: '⚠️', anomaly: '🔍', trend: '📈', action: '✅' };
+    $('#aiT2').outerHTML = `<div class="aim bot"><b>Insights for this page</b>${(r.items || []).map((x) => `<div class="aiins"><span>${IC[x.type] || '•'}</span><div><b>${esc(x.title)}</b><br>${esc(x.detail)}</div></div>`).join('')}</div>`; }
+  catch (e) { $('#aiT2').outerHTML = `<div class="aim bot err">${esc(e.message)}</div>`; }
+  $('#aiMsgs').scrollTop = 1e9;
+}
+
+/* ---------- P5: Forecasts & risk ---------- */
+async function pageForecast() {
+  shell(`<div class="head"><div><div class="soft">Insights</div><h1>Forecasts and risk</h1><p class="muted" style="margin:2px 0 0">Statistical forecasts from your own history. Ask AI to explain any of them.</p></div><div class="row"><button class="btn pri" id="fcAI">✨ Explain with AI</button></div></div><div id="fcB">${SKEL}</div>`);
+  const since = new Date(); since.setMonth(since.getMonth() - 12);
+  const [C, E, K, P, CP] = await Promise.all([can('covers') ? fetchAll('covers', 'date_from,kind,site,site_id', (q) => q.gte('date_from', since.toISOString().slice(0, 10))) : [], can('brighthr') ? fetchAll('brighthr_employees', 'start_date,end_date,terminated').catch(() => []) : [], can('contracts') ? fetchAll('contracts', 'id,name,area_manager,target_margin_pct') : [], can('finance') ? fetchAll('pl_entries', 'contract_id,month,revenue,labour_cost,materials,other_costs').catch(() => []) : [], can('operations') ? sb.from('complaints').select('site_id,severity,status').then((r) => r.data || []) : []]);
+  if (!$('#fcB')) return;
+  // Cover demand: weekly totals, trend + weekday profile → next 4 weeks
+  const wk = (d) => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x.toISOString().slice(0, 10); };
+  const weeks = {}; C.forEach((c) => { if (c.date_from) weeks[wk(c.date_from)] = (weeks[wk(c.date_from)] || 0) + 1; });
+  const thisWk = wk(new Date().toISOString().slice(0, 10)); const ws = Object.keys(weeks).filter((w) => w < thisWk).sort().slice(-26), wv = ws.map((w) => weeks[w]); const n = wv.length;
+  const mean = n ? wv.reduce((a, b) => a + b, 0) / n : 0, xs = wv.map((_, i) => i), xm = (n - 1) / 2, slope = n > 2 ? xs.reduce((a, x, i) => a + (x - xm) * (wv[i] - mean), 0) / xs.reduce((a, x) => a + (x - xm) ** 2, 0) : 0;
+  const recent = wv.slice(-8), base = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
+  const fc = [1, 2, 3, 4].map((i) => Math.max(0, Math.round(base + slope * (i + 3.5))));
+  const lastYear = (i) => { const d = new Date(); d.setDate(d.getDate() + 7 * i - 364); return weeks[wk(d)] || null; };
+  const dow = [0, 0, 0, 0, 0, 0, 0]; C.forEach((c) => c.date_from && dow[(new Date(c.date_from).getDay() + 6) % 7]++);
+  // Turnover: leavers per month over 12 months, projected
+  const ms = [...Array(12)].map((_, i) => { const x = new Date(); x.setDate(1); x.setMonth(x.getMonth() - 11 + i); return x.toISOString().slice(0, 7); });
+  const leavers = ms.map((m) => E.filter((e) => e.end_date?.startsWith(m)).length), headNow = E.filter((e) => !e.terminated).length, annLeave = leavers.reduce((a, b) => a + b, 0);
+  const turnover = headNow ? Math.round(annLeave / headNow * 1000) / 10 : null, nextQ = Math.round(leavers.slice(-3).reduce((a, b) => a + b, 0) / 3 * 3);
+  // Contract risk score
+  const months = [...new Set(P.map((p) => p.month))].sort(), last3 = months.slice(-3);
+  const siteContract = new Map(S.sites.map((s) => [s.id, s.contract_id])), covBy = {}, cmpBy = {};
+  C.forEach((c) => { const k2 = siteContract.get(c.site_id); if (k2) covBy[k2] = (covBy[k2] || 0) + 1; }); CP.forEach((c) => { const k2 = siteContract.get(c.site_id); if (k2 && c.status !== 'Resolved') cmpBy[k2] = (cmpBy[k2] || 0) + (c.severity === 'High' ? 3 : 1); });
+  const risk = K.map((k2) => { const pl = last3.map((m) => P.filter((p) => p.contract_id === k2.id && p.month === m).reduce((a, p) => ({ rev: a.rev + (+p.revenue || 0), m: a.m + (+p.revenue || 0) - (+p.labour_cost || 0) - (+p.materials || 0) - (+p.other_costs || 0) }), { rev: 0, m: 0 }));
+    const lossM = pl.filter((x) => x.rev && x.m < 0).length, mp = pl.filter((x) => x.rev).map((x) => x.m / x.rev * 100), trend = mp.length >= 2 ? mp.at(-1) - mp[0] : 0;
+    const score = Math.min(100, Math.round(lossM * 22 + (trend < -5 ? 15 : 0) + Math.min(20, (covBy[k2.id] || 0) / 3) + Math.min(20, (cmpBy[k2.id] || 0) * 5) + (mp.length && mp.at(-1) < (+k2.target_margin_pct || 15) ? 10 : 0)));
+    return { ...k2, score, lossM, margin: mp.length ? Math.round(mp.at(-1) * 10) / 10 : null, trend: Math.round(trend * 10) / 10, covers: covBy[k2.id] || 0, complaints: cmpBy[k2.id] || 0 }; }).filter((r) => r.score > 0).sort((a, b) => b.score - a.score);
+  const RC = [['name', 'Contract'], ['area_manager', 'Area Manager'], ['score', 'Risk score'], ['lossM', 'Loss months (last 3)'], ['margin', 'Latest margin %'], ['trend', 'Margin trend (pts)'], ['covers', 'Covers (12m)'], ['complaints', 'Open complaint points']];
+  $('#fcB').innerHTML = `<div style="display:flex;flex-direction:column;gap:16px"><section class="grid">
+    <div class="card kpi" style="--c:var(--acc)"><span>Covers next 4 weeks</span><b>${fc.reduce((a, b) => a + b, 0)}</b><small>forecast · ${slope > 0.3 ? '▲ rising' : slope < -0.3 ? '▼ falling' : 'steady'} trend</small></div>
+    <div class="card kpi" style="--c:var(--unplanned)"><span>Busiest weekday</span><b>${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dow.indexOf(Math.max(...dow))]}</b><small>most covers start this day</small></div>
+    <div class="card kpi" style="--c:var(--danger)"><span>Staff turnover (12m)</span><b>${turnover == null ? '—' : turnover + '%'}</b><small>${annLeave} leavers · ~${nextQ} expected next quarter</small></div>
+    <div class="card kpi click" style="--c:var(--raised)" ${dset('fcr', 'Contract risk', risk, RC)}><span>High-risk contracts</span><b>${risk.filter((r) => r.score >= 50).length}</b><small>score 50+ of 100</small></div></section>
+    <section class="charts"><div class="card wide"><h2>Weekly covers · history and 4-week forecast</h2><canvas id="fcW" height="70"></canvas></div><div class="card"><h2>Leavers by month</h2><canvas id="fcL"></canvas></div><div class="card"><h2>Covers by weekday</h2><canvas id="fcD"></canvas></div></section>
+    <section class="card"><h2>Contract risk ranking <span class="soft" style="font-weight:500;font-size:12px;margin-left:auto">losses, margin trend, cover load and complaints</span></h2><div class="tablewrap" style="box-shadow:none"><table><thead><tr>${RC.map(([, l]) => `<th>${l}</th>`).join('')}<th></th></tr></thead><tbody>${risk.slice(0, 40).map((r) => `<tr><td><strong>${esc(r.name)}</strong></td><td>${esc(r.area_manager || '')}</td><td><span class="chip" style="--c:var(${r.score >= 50 ? '--danger' : r.score >= 25 ? '--prog' : '--filled'})">${r.score}</span></td><td>${r.lossM}</td><td>${r.margin ?? '—'}</td><td class="${r.trend < 0 ? 'err' : ''}">${r.trend}</td><td>${r.covers}</td><td>${r.complaints}</td><td><button class="btn sm" data-ra="${esc(r.name)}">✨ Why?</button></td></tr>`).join('') || `<tr><td colspan="9">${empty('No risk signals', 'Import P&L and log complaints to score contracts.')}</td></tr>`}</tbody></table></div></section></div>`;
+  Chart.defaults.color = cssv('--muted'); Chart.defaults.borderColor = cssv('--border');
+  const fl = [1, 2, 3, 4].map((i) => { const d = new Date(); d.setDate(d.getDate() + 7 * i); return 'wk ' + wk(d).slice(5); });
+  S.charts.push(new Chart($('#fcW'), { data: { labels: [...ws.map((w) => w.slice(5)), ...fl], datasets: [{ type: 'bar', label: 'Actual', data: [...wv, null, null, null, null], backgroundColor: cssv('--acc'), borderRadius: 4 }, { type: 'bar', label: 'Forecast', data: [...ws.map(() => null), ...fc], backgroundColor: cssv('--prog'), borderRadius: 4 }, { type: 'line', label: 'Same week last year', data: [...ws.map((w) => { const d = new Date(w); d.setDate(d.getDate() - 364); return weeks[wk(d)] ?? null; }), ...[1, 2, 3, 4].map(lastYear)], borderColor: cssv('--soft'), borderDash: [5, 4], pointRadius: 0, spanGaps: true }] } }));
+  S.charts.push(new Chart($('#fcL'), { type: 'bar', data: { labels: ms.map((m) => MN[+m.slice(5) - 1]), datasets: [{ data: leavers, backgroundColor: cssv('--danger'), borderRadius: 5 }] }, options: { plugins: { legend: { display: false } } } }));
+  S.charts.push(new Chart($('#fcD'), { type: 'bar', data: { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], datasets: [{ data: dow, backgroundColor: cssv('--unplanned'), borderRadius: 5 }] }, options: { plugins: { legend: { display: false } } } }));
+  $('#fcAI').onclick = () => aiAsk('Explain these forecasts in plain English: expected covers next 4 weeks, staff turnover, and the top 5 high-risk contracts with the main reason for each. Suggest one action per item.');
+  $$('[data-ra]').forEach((b) => (b.onclick = () => aiAsk(`Why is the contract "${b.dataset.ra}" scored as risky on this page, and what should I do first?`)));
+}
 
 /* ---------- csv export ---------- */
 function downloadCsv(name, rows) {
