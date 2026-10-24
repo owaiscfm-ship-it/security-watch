@@ -9,11 +9,11 @@
   const U = SW.util;
 
   const DB_NAME = 'securewatch';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2; // v2 adds tasks and fms (facilities managers)
   const STORES = [
     'users', 'guards', 'sites', 'patrolRoutes', 'checkpoints', 'shifts', 'patrols',
     'checkpointScans', 'incidents', 'welfareChecks', 'siteInstructions', 'instructionAcks',
-    'attendance', 'sosEvents', 'auditLogs', 'settings', 'syncQueue',
+    'attendance', 'sosEvents', 'auditLogs', 'settings', 'syncQueue', 'tasks', 'fms',
   ];
   const MEDIA = 'media';
 

@@ -74,7 +74,7 @@
   R.rpc = (name, args) => api('rpc/' + name, { method: 'POST', body: args || {} });
 
   /* ---------- sign in / out ---------- */
-  R.login = async function (username, password) {
+  R.login = async function (username, password, askCode) {
     let email = username.includes('@') ? username : username + '@' + R.domain;
     if (username.includes('@') && !username.endsWith('@' + R.domain) && navigator.onLine) {
       // signing in with an email address: find the SecureWatch username for it
@@ -87,6 +87,17 @@
       throw new Error(e.status === 400 ? 'Username or password is incorrect.' : e.message);
     }
     store(t);
+    // two-step login: if this account has an authenticator app, ask for the 6-digit code
+    const fac = await R.mfaFactors().catch(() => []);
+    const totp = fac.find((f) => f.status === 'verified' && (f.factor_type || f.type) === 'totp');
+    if (totp) {
+      let ok = false;
+      for (let i = 0; i < 3 && !ok; i++) {
+        const code = askCode ? await askCode(i) : null;
+        if (!code) { saveAuth(null); throw new Error('Sign-in cancelled.'); }
+        try { await R.mfaVerify(totp.id, code); ok = true; } catch (e) { if (i === 2) { saveAuth(null); throw new Error('The 6-digit code was wrong.'); } }
+      }
+    }
     const p = await R.rpc('sw_my_profile');
     if (!p || !p.role) { saveAuth(null); throw new Error('This login has no SecureWatch profile. Ask your manager.'); }
     if (p.role === 'pending') { await R.logout(); throw new Error('Your account is waiting for a manager to approve it. You will get an email when it is ready.'); }
@@ -102,6 +113,24 @@
     saveAuth(null);
   };
 
+  /* ---------- two-step login (authenticator app) ---------- */
+  async function authReq(method, path, body) {
+    const token = await R.token();
+    const res = await fetch(R.url + '/auth/v1/' + path, { method, headers: { apikey: R.key, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.msg || data.message || data.error_description || ('Error ' + res.status));
+    return data;
+  }
+  R.mfaFactors = async () => { const u = await authReq('GET', 'user'); return u.factors || []; };
+  R.mfaEnroll = () => authReq('POST', 'factors', { factor_type: 'totp', friendly_name: 'SecureWatch ' + new Date().toISOString().slice(0, 16), issuer: 'SecureWatch' });
+  R.mfaVerify = async (factorId, code) => {
+    const ch = await authReq('POST', 'factors/' + factorId + '/challenge', {});
+    const t = await authReq('POST', 'factors/' + factorId + '/verify', { challenge_id: ch.id, code: String(code).trim() });
+    if (t && t.access_token) store(t);
+    return true;
+  };
+  R.mfaRemove = (factorId) => authReq('DELETE', 'factors/' + factorId);
+
   /* ---------- IDs that must be unique across devices ---------- */
   R.nextId = async function (prefix) {
     if (navigator.onLine) {
@@ -116,7 +145,8 @@
   function row(store, rec, deleted) {
     let site = rec.siteId || null, guard = rec.guardId || null;
     if (store === 'sites') site = rec.id;
-    if (store === 'guards') guard = rec.id;
+    if (store === 'guards' || store === 'fms') guard = rec.id;
+    if (store === 'tasks') guard = rec.assigneeId || null;
     return { store, id: rec.id, site_id: site, guard_id: guard, data: rec, deleted: !!deleted };
   }
   R.push = async function (items) {

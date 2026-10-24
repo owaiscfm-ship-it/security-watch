@@ -18,17 +18,27 @@
 
   SW.auth = {
     users,
+    askCode: (attempt) => U.modal({
+      title: 'Two-step login',
+      body: '<p>' + (attempt ? '<b class="red-text">That code did not work.</b> ' : '') + 'Open your authenticator app and enter the 6-digit code for SecureWatch.</p><label class="fld"><span>6-digit code</span><input name="c" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label>',
+      actions: [{ label: 'Cancel', value: null }, { label: 'Verify', cls: 'btn-primary', onClick: (m) => { const c = m.querySelector('[name=c]').value.trim(); if (!/^\d{6}$/.test(c)) { U.toast('Enter the 6 digits.', 'error'); return false; } return c; } }],
+    }),
     async login(username, password) {
       if (Date.now() < fails.until) return { ok: false, error: 'Too many attempts. Wait ' + Math.ceil((fails.until - Date.now()) / 1000) + ' seconds and try again.' };
       username = U.clean(username, 80).toLowerCase();
       if (remote()) {
         let p;
-        try { p = await SW.remote.login(username, password || ''); }
+        try { p = await SW.remote.login(username, password || '', SW.auth.askCode); }
         catch (e) { fails.n++; if (fails.n >= 5) { fails.until = Date.now() + 60000; fails.n = 0; } return { ok: false, error: e.message }; }
         fails.n = 0;
         SW.session = { userId: p.user_id, username: p.username, role: p.role, displayName: p.display_name || p.username, guardId: p.guard_id || null, siteIds: p.site_ids || [], at: Date.now(), remote: true };
         localStorage.setItem(SESSION_KEY, JSON.stringify(SW.session));
         try { await SW.remote.pull(); } catch (e) { console.warn('First sync failed', e); }
+        if (p.role === 'fm') {
+          const f = db.get('fms', p.guard_id);
+          if (f && f.status && f.status !== 'Active') { await SW.auth.logout(); return { ok: false, error: 'This account is marked ' + f.status + '. Contact your manager.' }; }
+          if (f) SW.session.displayName = f.name;
+        }
         if (p.role === 'guard') {
           const g = db.get('guards', p.guard_id);
           if (g && g.status !== 'Active') { await SW.auth.logout(); return { ok: false, error: 'This guard is marked ' + g.status + '. Contact your manager.' }; }
@@ -130,6 +140,7 @@
   const Q = (SW.q = {
     guard: (id) => db.get('guards', id),
     site: (id) => db.get('sites', id),
+    fmName: (id) => (db.get('fms', id) || {}).name || 'Facilities manager',
     guardName: (id) => (db.get('guards', id) || {}).name || (SW.session && SW.session.role === 'client' ? 'Security officer' : 'Unknown guard'),
     siteName: (id) => (db.get('sites', id) || {}).name || 'Unknown site',
     routesForSite: (siteId) => db.where('patrolRoutes', (r) => r.siteId === siteId).sort((a, b) => (a.name > b.name ? 1 : -1)),

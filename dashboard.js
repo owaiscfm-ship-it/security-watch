@@ -180,6 +180,7 @@
       '<section class="panel"><div class="panel-head"><h2>Checkpoint scans per day</h2></div>' + area(scansPerDay) + '</section>' +
       '</div>' +
 
+      (SW.tasks ? SW.tasks.dashPanel() : '') +
       '<section class="panel"><div class="panel-head"><h2>Staff performance</h2><span class="muted">Click a guard for their full profile</span></div>' +
       (team.length ? '<div class="staff">' + team.map((t, i) => '<button class="staff-row" data-go="guard|' + esc(t.G.id) + '">' +
         '<span class="rank">' + (i + 1) + '</span>' + M.avatar(t.g || { name: Q.guardName(t.G.id) }, 42) +
@@ -214,6 +215,9 @@
     const [kind, arg] = target.split('|');
     const [k, val] = (arg || '').split('=');
     if (kind === 'guard') return guardProfile(arg);
+    if (kind === 'task') return SW.tasks.detail(db.get('tasks', arg));
+    if (kind === 'tasks') { M.filters.tasks = { view: val || 'open', fm: '', site: '', pri: '' }; location.hash = '#/manager/tasks'; return; }
+    if (kind === 'fms') { location.hash = '#/manager/fms'; return; }
     if (kind === 'inc') return M.incidentDetail(db.get('incidents', arg), true);
     if (kind === 'patrol') { M.filters.patrol = { date: '', guard: '', route: '', status: '' }; location.hash = '#/manager/patrols'; return; }
     if (kind === 'day') { SW.reports._state = Object.assign(SW.reports._state || {}, { type: 'day', anchor: arg, guard: '' }); location.hash = '#/manager/reports'; return; }

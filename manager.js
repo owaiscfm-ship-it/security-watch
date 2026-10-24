@@ -16,6 +16,8 @@
     ['patrols', 'Patrols', 'M5 12l4 4L19 6'],
     ['checkpoints', 'Checkpoints', 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2'],
     ['incidents', 'Incidents', 'M12 4l9 16H3L12 4zm0 6v4m0 3v.5'],
+    ['tasks', 'Tasks', 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'],
+    ['fms', 'Facilities Team', 'M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6'],
     ['welfare', 'Welfare Checks', 'M12 20s-7-4.4-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.6-7 10-7 10z'],
     ['reports', 'Reports', 'M7 3h7l5 5v13H7V3zm7 0v5h5M10 13h6M10 17h6'],
     ['client', 'Client Portal', 'M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6zm9 2.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z'],
@@ -42,6 +44,8 @@
     const pw = U.$('#m-pw'); if (pw) pw.onclick = () => SW.app.changePassword();
     const bell = U.$('#m-bell'); if (bell) bell.onclick = async () => { await SW.app.enableAlerts(); M.mount(root, M.view); };
     U.$('#m-burger').onclick = () => U.$('#m-side').classList.toggle('open');
+    const mv = U.$('#m-view');
+    ['input', 'change'].forEach((ev) => mv.addEventListener(ev, (e) => { if (e.target.matches('input, select, textarea')) M.lastInput = Date.now(); }));
     U.$('#m-refresh').onclick = async () => { if (SW.remote.enabled && SW.app.syncNow) await SW.app.syncNow(); else await db.init(); M.render(); U.toast(SW.remote.enabled ? (SW.remote.lastError ? 'Sync problem: ' + SW.remote.lastError : 'Up to date') : 'Records reloaded from this device', 'ok'); };
     U.$$('#m-side nav a').forEach((a) => a.addEventListener('click', () => U.$('#m-side').classList.remove('open')));
     M.render();
@@ -59,6 +63,7 @@
   M.render = async function (quiet) {
     const v = U.$('#m-view');
     if (!v) return;
+    if (!quiet) M.lastInput = 0;
     const nav = NAV.find((n) => n[0] === M.view);
     U.$('#m-title').textContent = nav[1];
     document.title = nav[1] + ' — SecureWatch';
@@ -925,6 +930,7 @@
         '<p class="muted">To move a guard\u2019s records to this computer: on the guard phone open <i>More › Send my data to a manager</i>, send the file to yourself, then import it here. Imported records are merged; existing records with the same ID are updated.</p>') +
       (SW.remote.enabled
         ? card('Logins', '<div id="login-mgr"><p class="muted">Loading logins…</p></div>') +
+          card('Two-step login (your account)', '<div id="mfa-mgr"><p class="muted">Loading…</p></div>') +
           card('Email notifications', '<div id="mail-mgr"><p class="muted">Loading…</p></div>') +
           card('Server sync', '<dl class="dl-grid"><dt>Server</dt><dd>Supabase — London (UK)</dd><dt>Last sync</dt><dd>' + (SW.remote.lastSync ? U.fmtDateTime(SW.remote.lastSync) + ' (' + U.minsLabel(Date.now() - SW.remote.lastSync) + ')' : 'Not yet') + '</dd><dt>Waiting to upload</dt><dd>' + db.pending().length + ' change(s)</dd>' + (SW.remote.lastError ? '<dt>Last problem</dt><dd class="red-text">' + esc(SW.remote.lastError) + '</dd>' : '') + '</dl><div class="btn-row"><button class="btn btn-primary" id="sync-now">Sync now</button></div><p class="muted">Every device syncs automatically about every 20 seconds while it is online. Changes made offline upload when the signal returns.</p>')
         : card('Logins', '<div id="login-mgr"></div>') +
@@ -948,6 +954,7 @@
     if (SW.remote.enabled) {
       renderLoginsRemote(U.$('#login-mgr', v));
       renderMail(U.$('#mail-mgr', v));
+      renderMfa(U.$('#mfa-mgr', v));
       U.$('#sync-now', v).onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Syncing…'; await SW.app.syncNow(); U.toast(SW.remote.lastError ? 'Sync problem: ' + SW.remote.lastError : 'Synced with the server', SW.remote.lastError ? 'error' : 'ok'); M.render(); };
     } else {
       U.$('#pub-cfg', v).onclick = publishConfig;
@@ -999,6 +1006,43 @@
       renderLogins(host);
     }));
   }
+  async function renderMfa(host) {
+    let f;
+    try { f = await SW.remote.mfaFactors(); } catch (e) { host.innerHTML = '<p class="red-text">' + esc(e.message) + '</p>'; return; }
+    const on = f.find((x) => x.status === 'verified' && (x.factor_type || x.type) === 'totp');
+    host.innerHTML = on
+      ? '<div class="mfa-on"><span>🔒</span><div><b>Two-step login is ON</b><small>Signing in needs your password and a code from your authenticator app. Even if someone learns your password, they cannot open SecureWatch.</small></div></div><div class="btn-row"><button class="btn btn-danger-ghost" id="mfa-off">Turn off</button></div>'
+      : '<p><b>Recommended for every manager.</b> After your password you will also enter a 6-digit code from an authenticator app (Google Authenticator, Microsoft Authenticator or Authy) on your phone.</p><div class="btn-row"><button class="btn btn-primary" id="mfa-on">Turn on two-step login</button></div>';
+    const bOn = U.$('#mfa-on', host), bOff = U.$('#mfa-off', host);
+    if (bOn) bOn.onclick = async () => {
+      // remove half-finished set-ups first
+      for (const x of f.filter((x) => x.status !== 'verified')) { try { await SW.remote.mfaRemove(x.id); } catch (_) { /* ignore */ } }
+      let en;
+      try { en = await SW.remote.mfaEnroll(); } catch (e) { return U.toast('Could not start: ' + e.message, 'error', 6000); }
+      const qr = en.totp && en.totp.qr_code ? (/^data:/.test(en.totp.qr_code) ? en.totp.qr_code : 'data:image/svg+xml;utf-8,' + encodeURIComponent(en.totp.qr_code)) : '';
+      const ok = await U.modal({
+        title: 'Set up two-step login',
+        body: '<ol class="mfa-steps"><li>Install <b>Google Authenticator</b> or <b>Microsoft Authenticator</b> on your phone.</li><li>In the app, tap <b>+</b> and scan this QR code:</li></ol>' +
+          (qr ? '<div class="mfa-qr"><img src="' + qr + '" alt="QR code for your authenticator app" width="190" height="190"></div>' : '') +
+          '<p class="muted">Can\u2019t scan? Enter this key instead: <code class="mono-ish">' + esc((en.totp && en.totp.secret) || '') + '</code></p>' +
+          '<label class="fld"><span>3. Enter the 6-digit code shown in the app</span><input name="c" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>',
+        actions: [{ label: 'Cancel', value: null }, { label: 'Turn on', cls: 'btn-primary', onClick: async (m) => {
+          const c = m.querySelector('[name=c]').value.trim();
+          if (!/^\d{6}$/.test(c)) { U.toast('Enter the 6 digits from the app.', 'error'); return false; }
+          try { await SW.remote.mfaVerify(en.id, c); } catch (e) { U.toast('That code did not work. Check the time on your phone is correct and try the newest code.', 'error', 6000); return false; }
+          return true;
+        } }],
+      });
+      if (ok) { await db.audit('Two-step login turned on'); U.toast('Two-step login is on', 'ok'); }
+      else { try { await SW.remote.mfaRemove(en.id); } catch (_) { /* ignore */ } }
+      renderMfa(host);
+    };
+    if (bOff) bOff.onclick = async () => {
+      if (!(await U.confirm('Turn off two-step login?', 'Your account will be protected by your password only.', 'Turn off', true))) return;
+      try { await SW.remote.mfaRemove(on.id); } catch (e) { return U.toast(e.message, 'error'); }
+      await db.audit('Two-step login turned off'); U.toast('Two-step login is off', 'info'); renderMfa(host);
+    };
+  }
   async function renderMail(host) {
     let m;
     try { m = await SW.remote.mailSettings(); }
@@ -1020,6 +1064,10 @@
     U.$('#mail-test', host).onclick = async () => { try { await SW.remote.sendTestMail(); U.toast('Test email queued. It arrives within about a minute if the Gmail sender is running.', 'ok', 6000); renderMail(host); } catch (err) { U.toast(err.message, 'error'); } };
     U.$('#pop-on', host).onclick = async () => { await SW.app.enableAlerts(); renderMail(host); };
   }
+  function personOptions() {
+    return opt('', '—') + '<optgroup label="Guards">' + db.all('guards').map((g) => opt(g.id, g.name)).join('') + '</optgroup>' +
+      '<optgroup label="Facilities managers">' + db.all('fms').map((g) => opt(g.id, g.name)).join('') + '</optgroup>';
+  }
   async function renderLoginsRemote(host) {
     let list, pending = [];
     try { list = await SW.remote.listLogins(); }
@@ -1032,7 +1080,7 @@
     host.innerHTML = pendHtml + table([
         { label: 'Username', html: (u) => '<b>' + esc(u.username) + '</b>' },
         { label: 'Name', html: (u) => esc(u.display_name || '') },
-        { label: 'Role', html: (u) => esc(u.role) + (u.guard_id ? '<small class="blk">' + esc(Q.guardName(u.guard_id)) + '</small>' : '') },
+        { label: 'Role', html: (u) => esc(u.role === 'fm' ? 'facilities manager' : u.role) + (u.guard_id ? '<small class="blk">' + esc(/^FM-/.test(u.guard_id) ? Q.fmName(u.guard_id) : Q.guardName(u.guard_id)) + '</small>' : '') },
         { label: 'Email', html: (u) => (u.email ? esc(u.email) : '<span class="muted">None</span>') + ' <button class="link-btn link-dark" data-em="' + esc(u.username) + '" data-cur="' + esc(u.email || '') + '">Edit</button>' },
         { label: 'Last sign-in', html: (u) => (u.last_sign_in_at ? U.fmtDateTime(u.last_sign_in_at) : '—') },
         { label: '', html: (u) => '<button class="btn btn-sm btn-secondary" data-pw="' + esc(u.username) + '" data-has="' + (u.email ? '1' : '') + '">New password</button> ' + (u.username === SW.session.username ? '' : '<button class="btn btn-sm btn-danger-ghost" data-rm="' + esc(u.username) + '">Remove</button>') },
@@ -1041,12 +1089,13 @@
       '<p class="muted">Changes take effect straight away on every device. With an email saved, people can use "Forgot password?" on the sign-in screen and receive login details by email (needs the Gmail sender — see Email notifications).</p>';
     host.querySelectorAll('[data-ap]').forEach((b) => (b.onclick = async () => {
       const r = await U.modal({ title: 'Approve ' + b.dataset.nm,
-        body: '<div class="form-grid"><label class="fld"><span>Role</span><select name="role"><option value="guard">Guard</option><option value="client">Client (read only)</option><option value="manager">Manager</option></select></label>' +
-          '<label class="fld"><span>Guard record (for guards)</span><select name="guardId">' + opt('', '—') + db.all('guards').map((g) => opt(g.id, g.name)).join('') + '</select></label></div>' +
+        body: '<div class="form-grid"><label class="fld"><span>Role</span><select name="role"><option value="guard">Guard</option><option value="fm">Facilities manager</option><option value="client">Client (read only)</option><option value="manager">Manager</option></select></label>' +
+          '<label class="fld"><span>Person record (guards / facilities managers)</span><select name="guardId">' + personOptions() + '</select></label></div>' +
           '<p class="muted">For a new guard, first add them on the Guards page (SIA licence details), then approve here and pick their record.</p>',
         actions: [{ label: 'Cancel', value: null }, { label: 'Approve', cls: 'btn-primary', onClick: async (m) => {
           const role = m.querySelector('[name=role]').value, gid = m.querySelector('[name=guardId]').value;
-          if (role === 'guard' && !gid) { U.toast('Choose the guard record (add the guard first if needed).', 'error'); return false; }
+          if (role === 'guard' && !/^G-/.test(gid)) { U.toast('Choose the guard record (add the guard first if needed).', 'error'); return false; }
+          if (role === 'fm' && !/^FM-/.test(gid)) { U.toast('Choose the facilities manager record (add them on the Facilities Team page first).', 'error'); return false; }
           try { await SW.remote.approveSignup(b.dataset.ap, role, gid, role === 'manager' ? [] : db.all('sites').map((x) => x.id)); } catch (e) { U.toast(e.message, 'error'); return false; }
           return true; } }] });
       if (r) { await db.audit('Account request approved', { subject: b.dataset.ap }); U.toast('Approved — they have been emailed', 'ok'); renderLoginsRemote(host); }
@@ -1061,23 +1110,24 @@
       const pw0 = genPassword();
       const res = await U.modal({
         title: 'Add login',
-        body: '<div class="form-grid"><label class="fld"><span>Role</span><select name="role"><option value="guard">Guard</option><option value="manager">Manager</option><option value="client">Client (read only)</option></select></label>' +
-          '<label class="fld"><span>Guard (for guard logins)</span><select name="guardId">' + opt('', '—') + db.all('guards').map((g) => opt(g.id, g.name)).join('') + '</select></label>' +
+        body: '<div class="form-grid"><label class="fld"><span>Role</span><select name="role"><option value="guard">Guard</option><option value="fm">Facilities manager</option><option value="manager">Manager</option><option value="client">Client (read only)</option></select></label>' +
+          '<label class="fld"><span>Person (for guard / facilities manager logins)</span><select name="guardId">' + personOptions() + '</select></label>' +
           '<label class="fld"><span>Username</span><input name="username" maxlength="40" autocomplete="off" autocapitalize="none"></label>' +
           '<label class="fld"><span>Display name</span><input name="displayName" maxlength="60"></label>' +
-          '<label class="fld"><span>Password (at least 10 characters)</span><input name="password" maxlength="100" value="' + esc(pw0) + '" autocomplete="off"></label>' +
+          '<label class="fld"><span>Password (10+ characters, letters and numbers)</span><input name="password" maxlength="100" value="' + esc(pw0) + '" autocomplete="off"></label>' +
           '<label class="fld"><span>Email (for password reset and notices)</span><input name="email" type="email" maxlength="120" autocomplete="off"></label>' +
           '<label class="fld chk span2"><input type="checkbox" name="send" checked><span>Email the username and password to this person</span></label></div>',
         actions: [{ label: 'Cancel', value: null }, { label: 'Add login', cls: 'btn-primary', onClick: async (m) => {
           const f = formData(m);
           const username = U.clean(f.username, 40).toLowerCase();
           if (!/^[a-z0-9._-]{3,40}$/.test(username)) return fieldErr(m, 'username', 'Use 3–40 letters, numbers, dots or dashes.');
-          if (f.role === 'guard' && !f.guardId) return fieldErr(m, 'guardId', 'Choose which guard this login is for.');
-          if ((f.password || '').length < 10) return fieldErr(m, 'password', 'Use at least 10 characters.');
-          const g = f.guardId ? db.get('guards', f.guardId) : null;
+          if (f.role === 'guard' && !/^G-/.test(f.guardId)) return fieldErr(m, 'guardId', 'Choose which guard this login is for.');
+          if (f.role === 'fm' && !/^FM-/.test(f.guardId)) return fieldErr(m, 'guardId', 'Choose which facilities manager this login is for (add them on the Facilities Team page first).');
+          const pe = U.pwProblem(f.password, username); if (pe) return fieldErr(m, 'password', pe);
+          const g = f.guardId ? (db.get('guards', f.guardId) || db.get('fms', f.guardId)) : null;
           try {
             if (f.email && !U.validEmail(f.email)) return fieldErr(m, 'email', 'That email address does not look right.');
-            await SW.remote.createLogin({ p_username: username, p_password: f.password, p_role: f.role, p_display: U.clean(f.displayName, 60) || (g ? g.name : username), p_guard: f.role === 'guard' ? f.guardId : null, p_sites: f.role === 'manager' ? [] : db.all('sites').map((x) => x.id), p_email: U.clean(f.email, 120), p_send: !!(f.send && f.email) });
+            await SW.remote.createLogin({ p_username: username, p_password: f.password, p_role: f.role, p_display: U.clean(f.displayName, 60) || (g ? g.name : username), p_guard: f.role === 'guard' || f.role === 'fm' ? f.guardId : null, p_sites: f.role === 'manager' ? [] : db.all('sites').map((x) => x.id), p_email: U.clean(f.email, 120), p_send: !!(f.send && f.email) });
           } catch (e) { return fieldErr(m, 'username', e.message); }
           return { username, pw: f.password, mailed: !!(f.send && f.email) };
         } }],
@@ -1115,7 +1165,7 @@
         '<label class="fld"><span>Guard (for guard logins)</span><select name="guardId">' + opt('', '—') + db.all('guards').map((g) => opt(g.id, g.name)).join('') + '</select></label>' +
         '<label class="fld"><span>Username</span><input name="username" maxlength="40" autocomplete="off" autocapitalize="none"></label>' +
         '<label class="fld"><span>Display name</span><input name="displayName" maxlength="60"></label>' +
-        '<label class="fld span2"><span>Password (at least 10 characters)</span><input name="password" maxlength="100" value="' + esc(pw0) + '" autocomplete="off"></label></div>',
+        '<label class="fld span2"><span>Password (10+ characters, letters and numbers)</span><input name="password" maxlength="100" value="' + esc(pw0) + '" autocomplete="off"></label></div>',
       actions: [{ label: 'Cancel', value: null }, { label: 'Add login', cls: 'btn-primary', onClick: async (m) => {
         const f = formData(m);
         const username = U.clean(f.username, 40).toLowerCase();

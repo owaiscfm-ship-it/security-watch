@@ -715,3 +715,54 @@ svg.donut .seg:hover, .dbar:hover { opacity: .75; }
 .pend-row:first-of-type { border-top: 0; }
 .pend-row > div { flex: 1; min-width: 0; }
 .pend-row small { display: block; color: var(--ink-2); }
+.mfa-on { display: flex; gap: 12px; align-items: center; padding: 12px; border-radius: 10px; background: var(--green-bg); }
+.mfa-on span { font-size: 26px; }
+.mfa-on small { display: block; color: var(--ink-2); }
+.mfa-qr { text-align: center; margin: 6px 0 10px; }
+.mfa-qr img { border: 8px solid #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+.mfa-steps { padding-left: 1.2em; margin: 0 0 6px; }
+
+/* ---------- v2.5: facilities tasks ---------- */
+.cnt { font-style: normal; font-size: 12px; background: rgba(14,33,72,.08); border-radius: 999px; padding: 0 7px; margin-left: 4px; }
+.seg input:checked + span .cnt { background: rgba(255,255,255,.25); }
+.cnt-red { background: var(--red); color: #fff; }
+.tbl .row-bad td { background: #FFF3F4; }
+.t-head { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.t-desc { background: var(--paper); padding: 10px 12px; border-radius: 8px; }
+.ftiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+.ftiles button { border: 1px solid var(--line); background: var(--white); border-radius: 10px; padding: 10px; cursor: pointer; text-align: center; }
+.ftiles button:hover { border-color: var(--blue); }
+.ftiles b { display: block; font-family: var(--font-c); font-size: 28px; }
+.ftiles span { font-size: 12.5px; color: var(--ink-2); }
+.ftiles .bad { border-color: #F0B9BF; background: #FFF3F4; }
+.ftiles .bad b { color: var(--red); }
+/* FM app */
+body.area-fm { background: var(--paper); }
+.f-app { max-width: 640px; margin: 0 auto; min-height: 100vh; padding-bottom: 30px; }
+.f-top { position: sticky; top: 0; z-index: 30; display: flex; justify-content: space-between; align-items: center; padding: calc(10px + var(--safe-t)) 14px 10px; background: var(--navy-900); color: #fff; }
+.f-me { display: flex; gap: 10px; align-items: center; }
+.f-me strong { display: block; }
+.f-me small { color: #9DB5E8; }
+.f-acts { display: flex; gap: 8px; align-items: center; }
+.f-acts .icon-btn { background: rgba(255,255,255,.12); border: 0; color: #fff; }
+.f-tabs { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--white); border-bottom: 1px solid var(--line); position: sticky; top: 60px; z-index: 20; }
+.f-tabs button { border: 0; background: none; padding: 12px 4px 10px; font-weight: 600; color: var(--ink-2); cursor: pointer; font-size: 14px; border-bottom: 3px solid transparent; }
+.f-tabs button b { display: inline-block; margin-left: 5px; min-width: 22px; padding: 0 6px; border-radius: 999px; background: var(--paper); color: var(--ink); font-size: 12px; }
+.f-tabs button[aria-selected] { color: var(--navy-800); border-bottom-color: var(--blue); }
+.f-tabs .has-bad b { background: var(--red); color: #fff; }
+.f-main { padding: 12px; display: grid; gap: 10px; }
+.f-card { position: relative; text-align: left; display: grid; gap: 4px; padding: 14px 14px 14px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--white); cursor: pointer; overflow: hidden; }
+.f-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--pc); }
+.f-card:active { transform: scale(.99); }
+.f-c-top { display: flex; gap: 6px; }
+.f-c-title { font-size: 17px; }
+.f-c-meta { font-size: 13.5px; color: var(--ink-2); }
+.f-banner { border: 0; border-radius: 10px; background: var(--red); color: #fff; font-weight: 700; padding: 12px; text-align: left; cursor: pointer; font-size: 15px; }
+.f-empty { text-align: center; padding: 40px 10px; color: var(--ink-2); }
+.f-empty span { display: block; font-size: 34px; margin-bottom: 4px; }
+.f-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.f-stats div { background: var(--white); border: 1px solid var(--line); border-radius: 10px; padding: 10px; text-align: center; }
+.f-stats b { display: block; font-family: var(--font-c); font-size: 24px; }
+.f-stats span { font-size: 12px; color: var(--ink-2); }
+@media (max-width: 860px) { .ftiles { grid-template-columns: 1fr 1fr; } }
+.toolbar .seg span { white-space: nowrap; }
