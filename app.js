@@ -892,11 +892,12 @@ async function pageMap() {
   if ($('#hubUp')) $('#hubUp').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     const { error } = await sb.storage.from('private-tools').upload('ops-hub.html', f, { upsert: true, contentType: 'text/html' });
-    toast(error ? error.message : 'Operations Hub updated.', !!error); if (!error) { S.hubHtml = null; pageMap(); }
+    toast(error ? (/bucket not found/i.test(error.message) ? 'Storage not set up yet: run fix-hub-bucket.sql in Supabase, then upload again.' : error.message) : 'Operations Hub updated.', !!error); if (!error) { S.hubHtml = null; pageMap(); }
   };
   if (!S.hubHtml) {
     const { data, error } = await sb.storage.from('private-tools').download('ops-hub.html');
     if (!$('#hubBox')) return;
+    if (error && /bucket not found/i.test(error.message || '')) { $('#hubBox').innerHTML = `<div class="card"><h2>Storage for the Operations Hub isn't set up yet</h2><p class="muted" style="margin:6px 0 0">${isAdmin() ? 'In Supabase → SQL Editor, run <b>fix-hub-bucket.sql</b>, then click "Upload new version" here. Meanwhile the <b>Sites map</b> tab works without it.' : 'Ask Syed to finish the setup. The Sites map tab works meanwhile.'}</p></div>`; return; }
     if (error || !data) { $('#hubBox').innerHTML = `<div class="card"><h2>Operations Hub not uploaded yet</h2><p class="muted" style="margin:6px 0 0">${isAdmin() ? 'Click "Upload new version" and choose your Owais_Tool_Updated.html file. It is stored privately: only people with Operations access can open it.' : 'Ask Syed to upload the Operations Hub.'}</p></div>`; return; }
     S.hubHtml = await data.text();
   }
